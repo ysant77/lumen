@@ -1,6 +1,6 @@
 import { useMemo } from 'react'
 import { Link } from 'react-router-dom'
-import { catalog, getItem } from '../lib/catalog'
+import { catalog, resolveItem } from '../lib/catalog'
 import { useData } from '../store/data'
 import { useTimer, fmtClock } from '../store/timer'
 import { getSyncConfig } from '../lib/sync'
@@ -38,26 +38,200 @@ function Stat({ label, value, sub }: { label: string; value: string | number; su
   return (
     <div className="rounded-xl border border-neutral-800 bg-neutral-900/40 p-4">
       <p className="text-2xl font-semibold text-neutral-100">{value}</p>
-      <p className="mt-0.5 text-xs text-neutral-500">{label}</p>
-      {sub && <p className="text-[11px] text-neutral-600">{sub}</p>}
+      <p className="mt-0.5 text-xs text-neutral-400">{label}</p>
+      {sub && <p className="text-[11px] text-neutral-500">{sub}</p>}
     </div>
+  )
+}
+
+function OnboardingCard() {
+  const pdfs = useData((s) => s.pdfsAvailable)
+  const progress = useData((s) => s.progress)
+  const sessions = useData((s) => s.sessions)
+  const steps = [
+    { done: pdfs.size > 0, label: 'Import your PDF library', to: '/settings' },
+    { done: !!getSyncConfig(), label: 'Connect GitHub sync', to: '/settings' },
+    {
+      done: Object.values(progress).some((p) => p.status !== 'not-started'),
+      label: 'Start your first paper',
+      to: '/library',
+    },
+    { done: sessions.some((s) => s.kind === 'focus'), label: 'Finish one focus session', to: '/' },
+  ]
+  if (steps.every((s) => s.done)) return null
+  return (
+    <div className="mb-4 rounded-xl border border-amber-900/40 bg-amber-500/5 p-4">
+      <p className="mb-2 text-xs font-semibold text-amber-300">Getting set up</p>
+      <ul className="grid gap-1.5 sm:grid-cols-2">
+        {steps.map((s) => (
+          <li key={s.label}>
+            <Link
+              to={s.to}
+              className={cn(
+                'flex min-h-8 items-center gap-2 text-xs',
+                s.done ? 'text-neutral-500 line-through' : 'text-neutral-200 hover:text-amber-300',
+              )}
+            >
+              <span
+                className={cn(
+                  'flex h-4 w-4 items-center justify-center rounded-full border',
+                  s.done ? 'border-emerald-700 text-emerald-500' : 'border-neutral-600',
+                )}
+              >
+                {s.done && <Icon name="check" className="h-2.5 w-2.5" />}
+              </span>
+              {s.label}
+            </Link>
+          </li>
+        ))}
+      </ul>
+    </div>
+  )
+}
+
+/** Resume: everything in-flight (catalog AND inbox items), most recent first. */
+function ResumeSection() {
+  const progress = useData((s) => s.progress)
+  const customItems = useData((s) => s.customItems)
+  const recent = useMemo(() => {
+    const active = Object.entries(progress)
+      .filter(([, p]) => p.status === 'reading' || p.status === 'implementing')
+      .sort((a, b) => (b[1].updatedAt ?? '').localeCompare(a[1].updatedAt ?? ''))
+      .map(([id]) => resolveItem(id, customItems))
+      .filter((r): r is NonNullable<typeof r> => !!r)
+    return active.slice(0, 5)
+  }, [progress, customItems])
+
+  return (
+    <section aria-label="Resume reading">
+      <h2 className="mb-2 text-[11px] font-semibold tracking-wider text-neutral-400 uppercase">Resume</h2>
+      {recent.length === 0 ? (
+        <p className="rounded-lg border border-dashed border-neutral-800 p-4 text-xs text-neutral-400">
+          Nothing in progress —{' '}
+          <Link to="/library" className="text-amber-400 underline">
+            pick a paper
+          </Link>{' '}
+          and set it to “Reading”.
+        </p>
+      ) : (
+        <ul className="flex flex-col gap-1.5">
+          {recent.map(({ item }) => {
+            const p = progress[item.id]
+            return (
+              <li key={item.id}>
+                <Link
+                  to={`/paper/${item.id}`}
+                  className="flex min-h-11 items-center gap-3 rounded-lg border border-neutral-800 px-3 py-2 hover:bg-neutral-900/60"
+                >
+                  <span
+                    className={cn(
+                      'h-1.5 w-1.5 shrink-0 rounded-full',
+                      p?.status === 'implementing' ? 'bg-sky-400' : 'bg-amber-400',
+                    )}
+                  />
+                  <span className="min-w-0 flex-1 truncate text-[13px]">
+                    <span className="font-medium text-neutral-200">{item.shortName}</span>
+                    <span className="mx-1.5 text-neutral-700">·</span>
+                    <span className="text-neutral-400">{item.title}</span>
+                  </span>
+                  {p?.lastPage && p.totalPages && (
+                    <>
+                      <span className="shrink-0 font-mono text-[10px] text-neutral-500">
+                        p.{p.lastPage}/{p.totalPages}
+                      </span>
+                      <ProgressBar value={p.lastPage} max={p.totalPages} className="w-16 shrink-0" />
+                    </>
+                  )}
+                </Link>
+              </li>
+            )
+          })}
+        </ul>
+      )}
+    </section>
+  )
+}
+
+/** Small, manually curated queue for the week. */
+function WeekQueueSection() {
+  const weekQueue = useData((s) => s.weekQueue)
+  const customItems = useData((s) => s.customItems)
+  const progress = useData((s) => s.progress)
+  const setWeekQueue = useData((s) => s.setWeekQueue)
+  const entries = weekQueue.items
+    .map((id) => resolveItem(id, customItems))
+    .filter((r): r is NonNullable<typeof r> => !!r)
+
+  return (
+    <section aria-label="This week" className="mt-5">
+      <h2 className="mb-2 text-[11px] font-semibold tracking-wider text-neutral-400 uppercase">
+        This week
+        <span className="ml-2 font-normal text-neutral-600 normal-case">your own pick, 2–4 items</span>
+      </h2>
+      {entries.length === 0 ? (
+        <p className="rounded-lg border border-dashed border-neutral-800 p-4 text-xs text-neutral-400">
+          Empty. Queue items from the{' '}
+          <Link to="/library" className="text-amber-400 underline">
+            Library
+          </Link>{' '}
+          with the <Icon name="bookmark" className="inline h-3 w-3 align-[-2px]" /> button — a small
+          promise to yourself, not a backlog.
+        </p>
+      ) : (
+        <ul className="flex flex-col gap-1.5">
+          {entries.map(({ item }) => {
+            const done = progress[item.id]?.status === 'done'
+            return (
+              <li
+                key={item.id}
+                className={cn(
+                  'flex min-h-11 items-center gap-2 rounded-lg border border-neutral-800 px-3 py-2',
+                  done && 'opacity-60',
+                )}
+              >
+                <Icon name="bookmark" className="h-3.5 w-3.5 shrink-0 text-amber-400/80" />
+                <Link
+                  to={`/paper/${item.id}`}
+                  className="min-w-0 flex-1 truncate text-[13px] text-neutral-200 hover:text-amber-300"
+                >
+                  <span className="font-medium">{item.shortName}</span>
+                  <span className="mx-1.5 text-neutral-700">·</span>
+                  <span className={cn('text-neutral-400', done && 'line-through')}>{item.title}</span>
+                </Link>
+                {done && <Icon name="check" className="h-3.5 w-3.5 shrink-0 text-emerald-500" />}
+                <button
+                  onClick={() => setWeekQueue(weekQueue.items.filter((i) => i !== item.id))}
+                  className="flex h-8 w-8 shrink-0 items-center justify-center rounded text-neutral-500 hover:text-red-400"
+                  aria-label={`Remove ${item.shortName} from this week`}
+                >
+                  <Icon name="x" className="h-3.5 w-3.5" />
+                </button>
+              </li>
+            )
+          })}
+        </ul>
+      )}
+    </section>
   )
 }
 
 function FocusCard() {
   const timer = useTimer()
-  const itemLabel = timer.itemId ? (getItem(timer.itemId)?.item.shortName ?? '') : ''
+  const customItems = useData((s) => s.customItems)
+  const itemLabel = timer.itemId ? (resolveItem(timer.itemId, customItems)?.item.shortName ?? '') : ''
   return (
     <div className="flex flex-col rounded-xl border border-neutral-800 bg-neutral-900/40 p-4">
       <div className="flex items-center justify-between">
-        <span className="text-xs font-medium text-neutral-400">
+        <span className="text-xs font-medium text-neutral-300">
           {timer.mode === 'focus' ? 'Focus session' : 'Break'}
-          {itemLabel && timer.mode === 'focus' && (
-            <span className="ml-1.5 text-neutral-600">· {itemLabel}</span>
-          )}
+          {itemLabel && timer.mode === 'focus' && <span className="ml-1.5 text-neutral-500">· {itemLabel}</span>}
         </span>
-        <div className="flex items-center gap-1 text-[11px] text-neutral-600">
+        <div className="flex items-center gap-1 text-[11px] text-neutral-500">
+          <label className="sr-only" htmlFor="focus-min">
+            Focus minutes
+          </label>
           <input
+            id="focus-min"
             type="number"
             min={5}
             max={120}
@@ -66,7 +240,11 @@ function FocusCard() {
             className="w-12 rounded border border-neutral-800 bg-neutral-900 px-1 py-0.5 text-center"
           />
           <span>min /</span>
+          <label className="sr-only" htmlFor="break-min">
+            Break minutes
+          </label>
           <input
+            id="break-min"
             type="number"
             min={1}
             max={60}
@@ -103,7 +281,9 @@ function FocusCard() {
         )}
         {timer.startedAt != null && (
           <>
-            <Button onClick={() => timer.skip()}>finish</Button>
+            <Button onClick={() => timer.skip()} title="Ends the session and logs the actual minutes">
+              finish
+            </Button>
             <Button variant="ghost" onClick={() => timer.reset()}>
               reset
             </Button>
@@ -114,52 +294,9 @@ function FocusCard() {
   )
 }
 
-function OnboardingCard() {
-  const pdfs = useData((s) => s.pdfsAvailable)
-  const progress = useData((s) => s.progress)
+/** Compact rhythm strip: streak + small 12-week heatmap. Secondary by design. */
+function RhythmStrip() {
   const sessions = useData((s) => s.sessions)
-  const steps = [
-    { done: pdfs.size > 0, label: 'Import your PDF library', to: '/settings' },
-    { done: !!getSyncConfig(), label: 'Connect GitHub sync', to: '/settings' },
-    {
-      done: Object.values(progress).some((p) => p.status !== 'not-started'),
-      label: 'Start your first paper',
-      to: '/library',
-    },
-    { done: sessions.some((s) => s.kind === 'focus'), label: 'Finish one focus session', to: '/' },
-  ]
-  if (steps.every((s) => s.done)) return null
-  return (
-    <div className="mb-4 rounded-xl border border-amber-900/40 bg-amber-500/5 p-4">
-      <p className="mb-2 text-xs font-semibold text-amber-300">Getting set up</p>
-      <ul className="grid gap-1.5 sm:grid-cols-2">
-        {steps.map((s) => (
-          <li key={s.label}>
-            <Link
-              to={s.to}
-              className={cn(
-                'flex items-center gap-2 text-xs',
-                s.done ? 'text-neutral-600 line-through' : 'text-neutral-300 hover:text-amber-300',
-              )}
-            >
-              <span
-                className={cn(
-                  'flex h-4 w-4 items-center justify-center rounded-full border',
-                  s.done ? 'border-emerald-700 text-emerald-500' : 'border-neutral-700',
-                )}
-              >
-                {s.done && <Icon name="check" className="h-2.5 w-2.5" />}
-              </span>
-              {s.label}
-            </Link>
-          </li>
-        ))}
-      </ul>
-    </div>
-  )
-}
-
-function StreakCard({ sessions }: { sessions: ReturnType<typeof useData.getState>['sessions'] }) {
   const { streak, weeks, totalHours } = useMemo(() => {
     const minutesByDay = new Map<string, number>()
     let total = 0
@@ -170,7 +307,6 @@ function StreakCard({ sessions }: { sessions: ReturnType<typeof useData.getState
       total += s.minutes
     }
     const streak = computeStreak(new Set(minutesByDay.keys()))
-    // 12 weeks x 7 days, oldest week first, aligned so the last cell is today
     const weeks: Array<Array<{ key: string; min: number }>> = []
     const start = new Date()
     start.setDate(start.getDate() - (7 * 12 - 1))
@@ -188,30 +324,27 @@ function StreakCard({ sessions }: { sessions: ReturnType<typeof useData.getState
   }, [sessions])
 
   return (
-    <div className="rounded-xl border border-neutral-800 bg-neutral-900/40 p-4">
-      <div className="mb-3 flex items-center justify-between">
-        <span className="text-xs font-medium text-neutral-400">Focus rhythm · 12 weeks</span>
-        <span className="flex items-center gap-1.5 text-xs">
-          <Icon name="flame" className={cn('h-4 w-4', streak > 0 ? 'text-amber-400' : 'text-neutral-700')} />
-          <span className={streak > 0 ? 'font-semibold text-amber-300' : 'text-neutral-600'}>
-            {streak} day{streak === 1 ? '' : 's'}
-          </span>
+    <div className="mt-3 flex items-center gap-4 rounded-xl border border-neutral-800 bg-neutral-900/30 px-4 py-2.5">
+      <span className="flex shrink-0 items-center gap-1.5 text-xs">
+        <Icon name="flame" className={cn('h-4 w-4', streak > 0 ? 'text-amber-400' : 'text-neutral-700')} />
+        <span className={streak > 0 ? 'font-semibold text-amber-300' : 'text-neutral-500'}>
+          {streak}d streak
         </span>
-      </div>
-      <div className="flex justify-between gap-[3px]">
+      </span>
+      <div className="flex min-w-0 flex-1 justify-between gap-[2px]" aria-hidden>
         {weeks.map((col, i) => (
-          <div key={i} className="flex flex-1 flex-col gap-[3px]">
+          <div key={i} className="flex flex-1 flex-col gap-[2px]">
             {col.map((d) => (
               <div
                 key={d.key}
                 title={`${d.key}: ${d.min} min`}
-                className={cn('aspect-square w-full rounded-[3px]', heatTone(d.min))}
+                className={cn('h-[5px] w-full rounded-[2px]', heatTone(d.min))}
               />
             ))}
           </div>
         ))}
       </div>
-      <p className="mt-2 text-[11px] text-neutral-600">{totalHours} focused hours logged in total</p>
+      <span className="shrink-0 text-[11px] text-neutral-500">{totalHours}h total</span>
     </div>
   )
 }
@@ -220,24 +353,23 @@ export default function Dashboard() {
   const progress = useData((s) => s.progress)
   const decks = useData((s) => s.decks)
   const sessions = useData((s) => s.sessions)
+  const customItems = useData((s) => s.customItems)
 
   const stats = useMemo(() => {
-    const all = catalog.collections.flatMap((c) => c.items)
+    const all = [...catalog.collections.flatMap((c) => c.items), ...customItems]
     const done = all.filter((i) => progress[i.id]?.status === 'done').length
     const active = all.filter(
       (i) => progress[i.id]?.status === 'reading' || progress[i.id]?.status === 'implementing',
-    )
+    ).length
     const dueCards = Object.values(decks)
       .flat()
       .filter((c) => isDue(c)).length
     const weekAgo = Date.now() - 7 * 864e5
-    const focusMin = sessions
-      .filter((s) => s.kind === 'focus' && new Date(s.endedAt).getTime() > weekAgo)
-      .reduce((acc, s) => acc + s.minutes, 0)
-    const recent = [...active].sort((a, b) =>
-      (progress[b.id]?.updatedAt ?? '').localeCompare(progress[a.id]?.updatedAt ?? ''),
+    const focusMin = Math.round(
+      sessions
+        .filter((s) => s.kind === 'focus' && new Date(s.endedAt).getTime() > weekAgo)
+        .reduce((acc, s) => acc + s.minutes, 0),
     )
-    // gentle suggestions: the next untouched Core paper per collection
     const upNext = catalog.collections
       .map((c) =>
         c.items.find(
@@ -246,16 +378,8 @@ export default function Dashboard() {
       )
       .filter((i): i is NonNullable<typeof i> => !!i)
       .slice(0, 3)
-    return {
-      total: all.length,
-      done,
-      active: active.length,
-      dueCards,
-      focusMin,
-      recent: recent.slice(0, 6),
-      upNext,
-    }
-  }, [progress, decks, sessions])
+    return { total: all.length, done, active, dueCards, focusMin, upNext }
+  }, [progress, decks, sessions, customItems])
 
   return (
     <div className="mx-auto max-w-4xl p-4 md:p-6">
@@ -263,24 +387,27 @@ export default function Dashboard() {
 
       <OnboardingCard />
 
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+      {/* Reading first, statistics second */}
+      <ResumeSection />
+      <WeekQueueSection />
+
+      <div className="mt-5 grid grid-cols-2 gap-3 md:grid-cols-4">
         <Stat label="papers done" value={stats.done} sub={`of ${stats.total}`} />
         <Stat label="in progress" value={stats.active} />
         <Stat label="cards due" value={stats.dueCards} />
         <Stat label="focus min · 7d" value={stats.focusMin} />
       </div>
 
-      <div className="mt-4 grid gap-3 md:grid-cols-2">
+      <div className="mt-3 grid gap-3 md:grid-cols-2">
         <FocusCard />
-
         <div className="rounded-xl border border-neutral-800 bg-neutral-900/40 p-4">
           <div className="mb-2 flex items-center justify-between">
-            <span className="text-xs font-medium text-neutral-400">Review queue</span>
+            <span className="text-xs font-medium text-neutral-300">Review queue</span>
             <Chip className={stats.dueCards ? 'border-amber-700 text-amber-400' : undefined}>
               {stats.dueCards} due
             </Chip>
           </div>
-          <p className="mb-3 text-xs text-neutral-500">
+          <p className="mb-3 text-xs text-neutral-400">
             Spaced repetition (FSRS) across all paper decks — formulas, definitions, derivations.
           </p>
           <Link to="/review">
@@ -291,13 +418,11 @@ export default function Dashboard() {
         </div>
       </div>
 
-      <div className="mt-3">
-        <StreakCard sessions={sessions} />
-      </div>
+      <RhythmStrip />
 
       {stats.upNext.length > 0 && (
-        <section className="mt-6">
-          <h2 className="mb-2 text-[11px] font-semibold tracking-wider text-neutral-500 uppercase">
+        <section className="mt-6" aria-label="Suggested next">
+          <h2 className="mb-2 text-[11px] font-semibold tracking-wider text-neutral-400 uppercase">
             Suggested next · Core
           </h2>
           <div className="flex flex-wrap gap-1.5">
@@ -307,66 +432,15 @@ export default function Dashboard() {
                 to={`/paper/${it.id}`}
                 className="rounded-full border border-neutral-800 px-3 py-1.5 text-xs text-neutral-300 hover:border-amber-700 hover:text-amber-300"
               >
-                {it.shortName} <span className="text-neutral-600">· {it.phase.replace(/^\d+\.\s*/, '')}</span>
+                {it.shortName} <span className="text-neutral-500">· {it.phase.replace(/^\d+\.\s*/, '')}</span>
               </Link>
             ))}
           </div>
         </section>
       )}
 
-      {/* continue reading */}
-      <section className="mt-6">
-        <h2 className="mb-2 text-[11px] font-semibold tracking-wider text-neutral-500 uppercase">
-          Continue
-        </h2>
-        {stats.recent.length === 0 ? (
-          <p className="text-xs text-neutral-600">
-            Nothing in progress —{' '}
-            <Link to="/library" className="text-amber-400 underline">
-              pick a paper
-            </Link>{' '}
-            and set it to “Reading”.
-          </p>
-        ) : (
-          <ul className="flex flex-col gap-1.5">
-            {stats.recent.map((it) => {
-              const p = progress[it.id]
-              return (
-                <li key={it.id}>
-                  <Link
-                    to={`/paper/${it.id}`}
-                    className="flex items-center gap-3 rounded-lg border border-neutral-800 px-3 py-2 hover:bg-neutral-900/60"
-                  >
-                    <span
-                      className={cn(
-                        'h-1.5 w-1.5 rounded-full',
-                        p?.status === 'implementing' ? 'bg-sky-400' : 'bg-amber-400',
-                      )}
-                    />
-                    <span className="min-w-0 flex-1 truncate text-[13px]">
-                      <span className="font-medium text-neutral-200">{it.shortName}</span>
-                      <span className="mx-1.5 text-neutral-700">·</span>
-                      <span className="text-neutral-400">{it.title}</span>
-                    </span>
-                    {p?.lastPage && p.totalPages && (
-                      <span className="shrink-0 font-mono text-[10px] text-neutral-600">
-                        p.{p.lastPage}/{p.totalPages}
-                      </span>
-                    )}
-                    {p?.lastPage && p.totalPages && (
-                      <ProgressBar value={p.lastPage} max={p.totalPages} className="w-16 shrink-0" />
-                    )}
-                  </Link>
-                </li>
-              )
-            })}
-          </ul>
-        )}
-      </section>
-
-      {/* collection overview */}
-      <section className="mt-6">
-        <h2 className="mb-2 text-[11px] font-semibold tracking-wider text-neutral-500 uppercase">
+      <section className="mt-6" aria-label="Collections">
+        <h2 className="mb-2 text-[11px] font-semibold tracking-wider text-neutral-400 uppercase">
           Collections
         </h2>
         <div className="grid gap-2 sm:grid-cols-2">
@@ -380,9 +454,7 @@ export default function Dashboard() {
               >
                 <div className="flex items-center gap-2">
                   <Icon name={c.icon} className="h-4 w-4 text-amber-400/80" />
-                  <span className="flex-1 truncate text-[13px] font-medium text-neutral-200">
-                    {c.title}
-                  </span>
+                  <span className="flex-1 truncate text-[13px] font-medium text-neutral-200">{c.title}</span>
                   <span className="text-[11px] text-neutral-500">
                     {done}/{c.items.length}
                   </span>
@@ -391,6 +463,22 @@ export default function Dashboard() {
               </Link>
             )
           })}
+          {customItems.length > 0 && (
+            <Link to="/library/inbox" className="rounded-lg border border-neutral-800 p-3 hover:bg-neutral-900/60">
+              <div className="flex items-center gap-2">
+                <Icon name="inbox" className="h-4 w-4 text-amber-400/80" />
+                <span className="flex-1 truncate text-[13px] font-medium text-neutral-200">Inbox</span>
+                <span className="text-[11px] text-neutral-500">
+                  {customItems.filter((i) => progress[i.id]?.status === 'done').length}/{customItems.length}
+                </span>
+              </div>
+              <ProgressBar
+                value={customItems.filter((i) => progress[i.id]?.status === 'done').length}
+                max={customItems.length}
+                className="mt-2"
+              />
+            </Link>
+          )}
         </div>
       </section>
     </div>

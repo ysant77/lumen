@@ -5,7 +5,7 @@ import type { PDFDocumentProxy, PDFPageProxy } from 'pdfjs-dist'
 import { readPdf, writePdf } from '../lib/opfs'
 import { pageFromScroll, scrollTopForPage } from '../lib/readerMath'
 import { useData } from '../store/data'
-import { Button, EmptyState, Icon, Spinner } from './ui'
+import { Button, EmptyState, Icon, Spinner, cn } from './ui'
 import { Link } from 'react-router-dom'
 
 /** Direct-download URL when the source allows browser fetches (arXiv serves CORS). */
@@ -24,22 +24,57 @@ interface PageInfo {
   height: number
 }
 
+function escapeHtml(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+}
+
+/** Wrap query matches in <mark> inside the text layer; restores originals first. */
+function applyHighlight(container: HTMLElement, query: string) {
+  const q = query.trim().toLowerCase()
+  for (const span of container.querySelectorAll<HTMLElement>(':scope > span')) {
+    const orig = span.dataset.orig ?? span.textContent ?? ''
+    if (span.dataset.orig != null) {
+      span.textContent = orig
+      delete span.dataset.orig
+    }
+    if (!q) continue
+    const lower = orig.toLowerCase()
+    if (!lower.includes(q)) continue
+    span.dataset.orig = orig
+    let html = ''
+    let i = 0
+    for (;;) {
+      const at = lower.indexOf(q, i)
+      if (at === -1) {
+        html += escapeHtml(orig.slice(i))
+        break
+      }
+      html += `${escapeHtml(orig.slice(i, at))}<mark class="pdf-hl">${escapeHtml(orig.slice(at, at + q.length))}</mark>`
+      i = at + q.length
+    }
+    span.innerHTML = html
+  }
+}
+
 function PageView({
   doc,
   pageNo,
   scale,
   visible,
   size,
+  highlight,
 }: {
   doc: PDFDocumentProxy
   pageNo: number
   scale: number
   visible: boolean
   size: PageInfo
+  highlight: string
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const textRef = useRef<HTMLDivElement>(null)
   const renderTask = useRef<ReturnType<PDFPageProxy['render']> | null>(null)
+  const [textReady, setTextReady] = useState(0)
 
   useEffect(() => {
     let cancelled = false
@@ -79,6 +114,7 @@ function PageView({
           viewport,
         })
         await textLayer.render()
+        if (!cancelled) setTextReady((t) => t + 1)
       } catch {
         /* text layer is best-effort */
       }
@@ -88,6 +124,11 @@ function PageView({
       renderTask.current?.cancel()
     }
   }, [doc, pageNo, scale, visible])
+
+  // (re)apply search highlight whenever the text layer or query changes
+  useEffect(() => {
+    if (textRef.current && visible) applyHighlight(textRef.current, highlight)
+  }, [highlight, textReady, visible])
 
   const w = size.width * scale
   const h = size.height * scale
@@ -115,10 +156,17 @@ export default function PdfReader({
   itemId,
   pdfFile,
   pdfUrl,
+  requestedPage,
+  onPageHandled,
+  onAddPageNote,
 }: {
   itemId: string
   pdfFile: string | null
   pdfUrl?: string | null
+  /** page requested externally (e.g. a p.N link in notes); consumed via onPageHandled */
+  requestedPage?: number | null
+  onPageHandled?: () => void
+  onAddPageNote?: (page: number) => void
 }) {
   const [doc, setDoc] = useState<PDFDocumentProxy | null>(null)
   const [pageSizes, setPageSizes] = useState<PageInfo[]>([])
@@ -307,6 +355,74 @@ export default function PdfReader({
   const scrollToPageRef = useRef(scrollToPage)
   scrollToPageRef.current = scrollToPage
 
+  // externally requested page (note links) — works even across remounts
+  useEffect(() => {
+    if (state !== 'ready' || requestedPage == null) return
+    scrollToPage(requestedPage)
+    onPageHandled?.()
+  }, [state, requestedPage, scrollToPage, onPageHandled])
+
+  // ---- search (text-layer based) ----
+  const [searchOpen, setSearchOpen] = useState(false)
+  const [query, setQuery] = useState('')
+  const [activeQuery, setActiveQuery] = useState('')
+  const [matches, setMatches] = useState<Array<{ page: number; count: number }>>([])
+  const [matchIdx, setMatchIdx] = useState(0)
+  const [searching, setSearching] = useState(false)
+  const textCache = useRef(new Map<number, string>())
+
+  useEffect(() => {
+    textCache.current.clear()
+    setMatches([])
+    setActiveQuery('')
+    setQuery('')
+    setSearchOpen(false)
+  }, [pdfFile, reloadTick])
+
+  const runSearch = useCallback(async () => {
+    const q = query.trim().toLowerCase()
+    if (!doc || !q) return
+    setSearching(true)
+    setActiveQuery(query.trim())
+    const found: Array<{ page: number; count: number }> = []
+    for (let n = 1; n <= doc.numPages; n++) {
+      let text = textCache.current.get(n)
+      if (text == null) {
+        try {
+          const page = await doc.getPage(n)
+          const content = await page.getTextContent()
+          text = content.items.map((it: any) => it.str ?? '').join(' ')
+        } catch {
+          text = ''
+        }
+        textCache.current.set(n, text)
+      }
+      const lower = text.toLowerCase()
+      let count = 0
+      for (let i = lower.indexOf(q); i !== -1; i = lower.indexOf(q, i + q.length)) count++
+      if (count > 0) found.push({ page: n, count })
+    }
+    setMatches(found)
+    setMatchIdx(0)
+    setSearching(false)
+    if (found.length > 0) scrollToPageRef.current(found[0].page)
+  }, [doc, query])
+
+  const stepMatch = (dir: 1 | -1) => {
+    if (matches.length === 0) return
+    const next = (matchIdx + dir + matches.length) % matches.length
+    setMatchIdx(next)
+    scrollToPageRef.current(matches[next].page)
+  }
+
+  const totalMatches = matches.reduce((a, m) => a + m.count, 0)
+
+  // ---- bookmarks ----
+  const bookmarks = useData((s) => s.progress[itemId]?.bookmarks) ?? []
+  const toggleBookmark = useData((s) => s.toggleBookmark)
+  const [bookmarksOpen, setBookmarksOpen] = useState(false)
+  const pageBookmarked = bookmarks.some((b) => b.page === currentPage)
+
   const pages = useMemo(() => Array.from({ length: pageSizes.length }, (_, i) => i + 1), [pageSizes.length])
 
   if (state === 'missing') {
@@ -349,18 +465,134 @@ export default function PdfReader({
 
   return (
     <div className="flex h-full flex-col">
-      <div className="flex items-center gap-2 border-b border-neutral-800 px-3 py-1.5">
-        <Button variant="ghost" onClick={() => zoomBy(1 / 1.2)} title="Zoom out" className="px-2">
+      <div className="flex flex-wrap items-center gap-1 border-b border-neutral-800 px-2 py-1.5">
+        <Button variant="ghost" onClick={() => zoomBy(1 / 1.2)} title="Zoom out" aria-label="Zoom out" className="px-2">
           −
         </Button>
-        <Button variant="ghost" onClick={() => zoomBy(1.2)} title="Zoom in" className="px-2">
+        <Button variant="ghost" onClick={() => zoomBy(1.2)} title="Zoom in" aria-label="Zoom in" className="px-2">
           +
         </Button>
-        <Button variant="ghost" onClick={() => setZoomMode('fit')} title="Fit width" className="px-2">
+        <Button variant="ghost" onClick={() => setZoomMode('fit')} title="Fit width" aria-label="Fit width" className="px-2">
           <Icon name="external" className="h-3.5 w-3.5 rotate-90" />
         </Button>
-        <div className="ml-auto flex items-center gap-1 text-xs text-neutral-500">
+
+        {/* search */}
+        <Button
+          variant="ghost"
+          onClick={() => {
+            setSearchOpen((o) => !o)
+            if (searchOpen) {
+              setActiveQuery('')
+              setMatches([])
+            }
+          }}
+          title="Search in PDF"
+          aria-label="Search in PDF"
+          aria-expanded={searchOpen}
+          className="px-2"
+        >
+          <Icon name="search" className="h-3.5 w-3.5" />
+        </Button>
+        {searchOpen && (
+          <span className="flex items-center gap-1">
+            <label className="sr-only" htmlFor={`pdf-search-${itemId}`}>
+              Search text in this PDF
+            </label>
+            <input
+              id={`pdf-search-${itemId}`}
+              value={query}
+              autoFocus
+              onChange={(e) => setQuery(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') void runSearch()
+                if (e.key === 'Escape') setSearchOpen(false)
+              }}
+              placeholder="find…  (Enter)"
+              className="w-32 rounded border border-neutral-700 bg-neutral-900 px-1.5 py-1 text-xs focus:ring-1 focus:ring-amber-500 focus:outline-none"
+            />
+            {searching ? (
+              <Spinner className="h-3 w-3" />
+            ) : activeQuery ? (
+              <span className="text-[11px] whitespace-nowrap text-neutral-400">
+                {totalMatches} in {matches.length}p
+              </span>
+            ) : null}
+            <Button variant="ghost" className="px-1.5" onClick={() => stepMatch(-1)} disabled={!matches.length} aria-label="Previous match">
+              ‹
+            </Button>
+            <Button variant="ghost" className="px-1.5" onClick={() => stepMatch(1)} disabled={!matches.length} aria-label="Next match">
+              ›
+            </Button>
+          </span>
+        )}
+
+        <div className="ml-auto flex items-center gap-1">
+          {/* page note */}
+          {onAddPageNote && (
+            <Button
+              variant="ghost"
+              onClick={() => onAddPageNote(currentPage)}
+              title={`Add a note for page ${currentPage}`}
+              aria-label={`Add a note for page ${currentPage}`}
+              className="px-2"
+            >
+              <Icon name="note" className="h-3.5 w-3.5" />
+            </Button>
+          )}
+          {/* bookmarks */}
+          <span className="relative">
+            <Button
+              variant="ghost"
+              onClick={() => toggleBookmark(itemId, currentPage)}
+              title={pageBookmarked ? `Remove bookmark on page ${currentPage}` : `Bookmark page ${currentPage}`}
+              aria-label={pageBookmarked ? 'Remove bookmark' : 'Bookmark this page'}
+              aria-pressed={pageBookmarked}
+              className={cn('px-2', pageBookmarked && 'text-amber-400')}
+            >
+              <Icon name="bookmark" className="h-3.5 w-3.5" />
+            </Button>
+            {bookmarks.length > 0 && (
+              <Button
+                variant="ghost"
+                onClick={() => setBookmarksOpen((o) => !o)}
+                className="px-1"
+                aria-label={`Show ${bookmarks.length} bookmarks`}
+                aria-expanded={bookmarksOpen}
+              >
+                <Icon name="chevron" className={cn('h-3 w-3', bookmarksOpen ? '-rotate-90' : 'rotate-90')} />
+              </Button>
+            )}
+            {bookmarksOpen && (
+              <ul className="absolute top-full right-0 z-30 mt-1 max-h-56 w-40 overflow-y-auto rounded-lg border border-neutral-700 bg-neutral-900 p-1 shadow-xl">
+                {bookmarks.map((b) => (
+                  <li key={b.page} className="flex items-center">
+                    <button
+                      className="min-h-8 flex-1 rounded px-2 text-left text-xs text-neutral-300 hover:bg-neutral-800"
+                      onClick={() => {
+                        scrollToPage(b.page)
+                        setBookmarksOpen(false)
+                      }}
+                    >
+                      page {b.page}
+                    </button>
+                    <button
+                      className="flex h-8 w-8 items-center justify-center text-neutral-600 hover:text-red-400"
+                      onClick={() => toggleBookmark(itemId, b.page)}
+                      aria-label={`Delete bookmark on page ${b.page}`}
+                    >
+                      <Icon name="x" className="h-3 w-3" />
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </span>
+
+          <label className="sr-only" htmlFor={`pdf-page-${itemId}`}>
+            Current page
+          </label>
           <input
+            id={`pdf-page-${itemId}`}
             type="number"
             min={1}
             max={doc.numPages}
@@ -372,7 +604,7 @@ export default function PdfReader({
             }}
             className="w-14 rounded border border-neutral-700 bg-neutral-900 px-1.5 py-0.5 text-center text-xs"
           />
-          <span>/ {doc.numPages}</span>
+          <span className="text-xs text-neutral-500">/ {doc.numPages}</span>
         </div>
       </div>
       <div ref={containerRef} className="min-h-0 flex-1 overflow-auto bg-neutral-900/60 p-4">
@@ -384,6 +616,7 @@ export default function PdfReader({
             scale={scale}
             visible={visiblePages.has(n)}
             size={pageSizes[n - 1]}
+            highlight={activeQuery}
           />
         ))}
       </div>

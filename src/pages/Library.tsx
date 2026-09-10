@@ -10,13 +10,42 @@ const PRIORITY_TONE: Record<string, string> = {
   Important: 'border-sky-900 text-sky-400',
 }
 
+/**
+ * Availability marker with three DISTINCT meanings:
+ *  green dot    = local PDF present (readable offline)
+ *  amber ring   = a PDF exists for this item but is not imported on this device
+ *  globe glyph  = external resource (course/book/site) — there is no local PDF to import
+ */
+function AvailabilityDot({ item, hasPdf }: { item: CatalogItem; hasPdf: boolean }) {
+  if (!item.pdfFile) {
+    return (
+      <span title="External resource — opens on the web (no local PDF)" aria-label="External resource">
+        <Icon name="external" className="h-3 w-3 shrink-0 text-neutral-500" />
+      </span>
+    )
+  }
+  return (
+    <span
+      className={cn(
+        'h-2 w-2 shrink-0 rounded-full',
+        hasPdf ? 'bg-emerald-500' : 'border border-amber-600 bg-transparent',
+      )}
+      title={hasPdf ? 'PDF on this device (works offline)' : 'PDF not imported on this device yet'}
+      aria-label={hasPdf ? 'PDF available offline' : 'PDF not imported on this device'}
+    />
+  )
+}
+
 function ItemRow({ item, removable }: { item: CatalogItem; removable?: boolean }) {
   const navigate = useNavigate()
   const progress = useData((s) => s.progress[item.id])
   const setStatus = useData((s) => s.setStatus)
   const removeCustomItem = useData((s) => s.removeCustomItem)
+  const weekQueue = useData((s) => s.weekQueue)
+  const setWeekQueue = useData((s) => s.setWeekQueue)
   const hasPdf = useData((s) => (item.pdfFile ? s.pdfsAvailable.has(item.pdfFile) : false))
   const status = progress?.status ?? 'not-started'
+  const queued = weekQueue.items.includes(item.id)
 
   return (
     <li
@@ -27,11 +56,8 @@ function ItemRow({ item, removable }: { item: CatalogItem; removable?: boolean }
       )}
       onClick={() => navigate(`/paper/${item.id}`)}
     >
-      <span className="w-6 shrink-0 text-right font-mono text-[11px] text-neutral-600">{item.order}</span>
-      <span
-        className={cn('h-1.5 w-1.5 shrink-0 rounded-full', hasPdf ? 'bg-emerald-500' : 'bg-neutral-700')}
-        title={hasPdf ? 'PDF imported' : item.pdfFile ? 'PDF not imported' : 'external resource'}
-      />
+      <span className="w-6 shrink-0 text-right font-mono text-[11px] text-neutral-500">{item.order}</span>
+      <AvailabilityDot item={item} hasPdf={hasPdf} />
       <div className="min-w-0 flex-1">
         <p className="truncate text-[13px] text-neutral-200">
           <span className="font-medium text-neutral-100">{item.shortName}</span>
@@ -39,19 +65,33 @@ function ItemRow({ item, removable }: { item: CatalogItem; removable?: boolean }
           <span className="text-neutral-400">{item.title}</span>
         </p>
         <div className="mt-0.5 flex items-center gap-1.5">
-          <span className="text-[11px] text-neutral-600">{item.year}</span>
+          <span className="text-[11px] text-neutral-500">{item.year}</span>
           {item.priority && (
             <Chip className={PRIORITY_TONE[item.priority] ?? undefined}>{item.priority}</Chip>
           )}
           {item.difficulty && <Chip>{item.difficulty.split(' ')[0]}★</Chip>}
           {progress?.lastPage && progress.totalPages && (
-            <span className="font-mono text-[10px] text-neutral-600">
+            <span className="font-mono text-[10px] text-neutral-500">
               p.{progress.lastPage}/{progress.totalPages}
             </span>
           )}
         </div>
       </div>
       <span onClick={(e) => e.stopPropagation()} className="flex items-center gap-1">
+        <button
+          onClick={() =>
+            setWeekQueue(queued ? weekQueue.items.filter((i) => i !== item.id) : [...weekQueue.items, item.id])
+          }
+          className={cn(
+            'flex h-8 w-8 items-center justify-center rounded',
+            queued ? 'text-amber-400' : 'text-neutral-600 hover:text-neutral-300',
+          )}
+          title={queued ? 'Remove from “This week”' : 'Add to “This week”'}
+          aria-label={queued ? `Remove ${item.shortName} from this week` : `Add ${item.shortName} to this week`}
+          aria-pressed={queued}
+        >
+          <Icon name="bookmark" className="h-3.5 w-3.5" />
+        </button>
         <StatusSelect value={status} onChange={(s) => setStatus(item.id, s)} />
         {removable && (
           <button
@@ -59,8 +99,9 @@ function ItemRow({ item, removable }: { item: CatalogItem; removable?: boolean }
               if (confirm(`Remove "${item.shortName}" from your inbox? Notes/cards are kept in your data repo.`))
                 removeCustomItem(item.id)
             }}
-            className="p-1 text-neutral-700 hover:text-red-400"
+            className="flex h-8 w-8 items-center justify-center rounded text-neutral-600 hover:text-red-400"
             title="Remove from inbox"
+            aria-label={`Remove ${item.shortName} from inbox`}
           >
             <Icon name="trash" className="h-3.5 w-3.5" />
           </button>
