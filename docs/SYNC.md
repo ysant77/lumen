@@ -42,19 +42,31 @@ PDFs and the GitHub token are **never** synced.
 - If the branch moved between pull and push (another device racing), lumen re-reads the head
   and retries the push once on top of it.
 
-## Conflict policy (single user, multiple devices)
+## Merge policy (single user, multiple devices)
 
-Per file, **last writer wins** with a bias toward whatever you just did:
+Structured docs merge **per record**, so independent changes from two devices both survive:
 
-| Situation | Outcome |
-|---|---|
-| Remote changed, this device clean | Remote version applied locally |
-| Remote changed, this device has unsynced edits | **Local kept** and pushed (reported as "conflict, local kept") |
+| Doc | Merge unit | Rule |
+|---|---|---|
+| `progress.json` | per item id | newest `updatedAt` wins per item; unique items union |
+| `sessions.json` | per session id | union (capped at 2000) |
+| `decks/*.json`, `experiments/*.json` | per record id | newest `updatedAt` wins per record; union |
+| `custom.json` | per item id | union + deletion tombstones (removals survive sync) |
+| `radar.json` | per topic id | newest topic wins; `lastChecked` takes the max |
+| `queue.json` | whole doc | last writer wins by `updatedAt` (it's one small ordered list) |
+| `notes/*.md`, `code/*.json` | — | **cannot be merged safely**: local stays live, the remote version is saved as `…​.conflict-<timestamp>` and surfaced in Settings (promote / download / discard). Nothing is silently overwritten. |
 
-Since a paper's note/deck is a single file, edit the *same paper* on two devices without
-syncing in between and the later push wins for that file. In practice: tap Sync when you
-switch devices. Full history remains in the repo, so nothing is ever truly lost — any
-overwritten version is one `git log` away.
+Additional guarantees:
+
+- **Exact-revision clean-marking.** After a push, a file is marked "synced" only if it is
+  still byte-for-byte the revision that was uploaded; anything you typed while the push was
+  in flight stays pending for the next sync.
+- **Retry on reconnect.** Pending changes sync automatically when the browser regains
+  connectivity (plus on launch, and ~45 s after edits if auto-sync is enabled).
+- **Local save ≠ synced.** The header chip shows `N pending` (amber) until the data repo has
+  confirmed the upload, then `Synced` (green).
+
+Full history remains in the repo — any state is one `git log` away.
 
 ## Security notes
 
