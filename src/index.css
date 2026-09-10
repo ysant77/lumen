@@ -1,0 +1,81 @@
+@import 'tailwindcss';
+@import 'katex/dist/katex.min.css';
+
+@theme {
+  --color-accent-50: #fffbeb;
+  --color-accent-300: #fcd34d;
+  --color-accent-400: #fbbf24;
+  --color-accent-500: #f59e0b;
+  --color-accent-600: #d97706;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+/* ---------- PDF.js text layer ---------- */
+.textLayer {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  line-height: 1;
+  text-size-adjust: none;
+  forced-color-adjust: none;
+  transform-origin: 0 0;
+  caret-color: CanvasText;
+}
+.textLayer :is(span, br) {
+  color: transparent;
+  position: absolute;
+  white-space: pre;
+  cursor: text;
+  transform-origin: 0% 0%;
+}
+.textLayer ::selection {
+  background: rgba(251, 191, 36, 0.35);
+}
+
+/* ---------- CodeMirror ---------- */
+.cm-editor {
+  height: 100%;
+  font-size: 13.5px;
+}
+.cm-editor.cm-focused {
+  outline: none;
+}
+.cm-scroller {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+/* ---------- Markdown prose ---------- */
+.prose-lumen {
+  line-height: 1.7;
+  font-size: 0.925rem;
+}
+.prose-lumen h1 { font-size: 1.35rem; font-weight: 700; margin: 1.2em 0 0.5em; color: #fafafa; }
+.prose-lumen h2 { font-size: 1.15rem; font-weight: 650; margin: 1.1em 0 0.45em; color: #fafafa; }
+.prose-lumen h3 { font-size: 1rem; font-weight: 600; margin: 1em 0 0.4em; color: #f5f5f5; }
+.prose-lumen p { margin: 0.55em 0; }
+.prose-lumen ul { list-style: disc; padding-left: 1.4em; margin: 0.5em 0; }
+.prose-lumen ol { list-style: decimal; padding-left: 1.4em; margin: 0.5em 0; }
+.prose-lumen li { margin: 0.22em 0; }
+.prose-lumen a { color: #fbbf24; text-decoration: underline; text-underline-offset: 2px; }
+.prose-lumen blockquote { border-left: 3px solid #52525b; padding-left: 0.9em; color: #a1a1aa; margin: 0.7em 0; }
+.prose-lumen code { background: #27272a; border-radius: 4px; padding: 0.12em 0.35em; font-size: 0.85em; }
+.prose-lumen pre { background: #18181b; border: 1px solid #27272a; border-radius: 8px; padding: 0.8em 1em; overflow-x: auto; margin: 0.7em 0; }
+.prose-lumen pre code { background: transparent; padding: 0; }
+.prose-lumen table { border-collapse: collapse; margin: 0.7em 0; }
+.prose-lumen th, .prose-lumen td { border: 1px solid #3f3f46; padding: 0.3em 0.7em; }
+.prose-lumen input[type='checkbox'] { accent-color: #f59e0b; margin-right: 0.4em; }
+.prose-lumen .katex-display { overflow-x: auto; overflow-y: hidden; padding: 0.2em 0; }
+
+/* ---------- Scrollbars ---------- */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #3f3f46 transparent;
+}
+*::-webkit-scrollbar { width: 8px; height: 8px; }
+*::-webkit-scrollbar-thumb { background: #3f3f46; border-radius: 4px; }
+*::-webkit-scrollbar-track { background: transparent; }

@@ -1,0 +1,100 @@
+{
+  "llm-01": [
+    {
+      "front": "State the **scaled dot-product attention** formula.",
+      "back": "$$\\mathrm{Attention}(Q,K,V)=\\mathrm{softmax}\\!\\left(\\frac{QK^\\top}{\\sqrt{d_k}}\\right)V$$"
+    },
+    {
+      "front": "Why divide by $\\sqrt{d_k}$ in attention?",
+      "back": "For $q,k$ with i.i.d. zero-mean, unit-variance components, $q\\cdot k$ has variance $d_k$. Scaling by $1/\\sqrt{d_k}$ keeps logits at unit variance, preventing softmax saturation and vanishing gradients for large $d_k$."
+    },
+    {
+      "front": "Multi-head attention: formula, and why multiple heads?",
+      "back": "$$\\mathrm{head}_i=\\mathrm{Attention}(QW_i^Q,\\,KW_i^K,\\,VW_i^V)$$\n$$\\mathrm{MHA}(Q,K,V)=\\mathrm{Concat}(\\mathrm{head}_1,\\dots,\\mathrm{head}_h)\\,W^O$$\nHeads let the model jointly attend to information from different representation subspaces at different positions; a single head would average them away."
+    },
+    {
+      "front": "Write the sinusoidal positional encodings used in the original Transformer.",
+      "back": "$$PE_{(pos,2i)}=\\sin\\!\\left(\\frac{pos}{10000^{2i/d_{model}}}\\right),\\qquad PE_{(pos,2i+1)}=\\cos\\!\\left(\\frac{pos}{10000^{2i/d_{model}}}\\right)$$\nFor any fixed offset $k$, $PE_{pos+k}$ is a linear function of $PE_{pos}$, making relative positions easy to express."
+    }
+  ],
+  "llm-06": [
+    {
+      "front": "Kaplan et al.: how does loss scale with model size $N$ (data unconstrained)?",
+      "back": "A power law: $L(N)\\approx\\left(N_c/N\\right)^{\\alpha_N}$ with $\\alpha_N\\approx 0.076$. Analogous laws hold for dataset size ($\\alpha_D\\approx 0.095$) and compute ($\\alpha_C$), spanning several orders of magnitude."
+    },
+    {
+      "front": "What is the practical use of scaling laws when planning a training run?",
+      "back": "They let you predict final loss from $(N, D, C)$ before training, choose compute-optimal allocation between model size and tokens, and detect when a run is data- or capacity-bottlenecked (curves bend away from the power law)."
+    }
+  ],
+  "llm-07": [
+    {
+      "front": "Chinchilla's compute-optimal rule of thumb: how many training tokens per parameter?",
+      "back": "Roughly $D\\approx 20N$ tokens per parameter — model size and data should be scaled **equally**: $N\\propto C^{0.5}$, $D\\propto C^{0.5}$. Chinchilla (70B, 1.4T tokens) beat Gopher (280B) at the same compute."
+    }
+  ],
+  "llm-15": [
+    {
+      "front": "How does RoPE encode position, and what property does it give attention scores?",
+      "back": "Each 2-D pair of query/key features is rotated by angle $m\\theta_i$ at position $m$ ($\\theta_i=10000^{-2i/d}$). Then $\\langle f_q(x,m), f_k(y,n)\\rangle$ depends only on the **relative** offset $m-n$, giving relative-position awareness with absolute-position implementation."
+    },
+    {
+      "front": "Why does RoPE decay attention with distance?",
+      "back": "The multi-frequency rotations progressively de-phase query/key pairs as $|m-n|$ grows, so inner products (hence logits) shrink on average with distance — a useful inductive bias for language."
+    }
+  ],
+  "llm-24": [
+    {
+      "front": "Write the DPO loss for preference pair $(y_w \\succ y_l)$ given prompt $x$.",
+      "back": "$$\\mathcal{L}_{\\mathrm{DPO}}=-\\,\\mathbb{E}\\left[\\log\\sigma\\!\\left(\\beta\\log\\frac{\\pi_\\theta(y_w|x)}{\\pi_{\\mathrm{ref}}(y_w|x)}-\\beta\\log\\frac{\\pi_\\theta(y_l|x)}{\\pi_{\\mathrm{ref}}(y_l|x)}\\right)\\right]$$"
+    },
+    {
+      "front": "In what sense is the language model 'secretly a reward model' in DPO?",
+      "back": "The KL-constrained RLHF optimum is $\\pi^*(y|x)\\propto\\pi_{\\mathrm{ref}}(y|x)e^{r(x,y)/\\beta}$, so $r(x,y)=\\beta\\log\\frac{\\pi^*(y|x)}{\\pi_{\\mathrm{ref}}(y|x)}$ (up to a prompt-only term). Substituting this into the Bradley–Terry likelihood removes the explicit reward model and RL loop."
+    }
+  ],
+  "llm-28": [
+    {
+      "front": "What is the core idea of FlashAttention?",
+      "back": "Compute **exact** attention with tiling and an online softmax so the $N\\times N$ score matrix is never materialized in HBM. Work happens in SRAM tiles; HBM traffic drops from $O(N^2)$ to $O(N^2 d^2 / M)$ accesses ($M$ = SRAM size), and backward recomputes tiles instead of storing them."
+    },
+    {
+      "front": "State the online softmax update when merging a new tile (running max $m$, normalizer $\\ell$).",
+      "back": "$$m^{\\mathrm{new}}=\\max(m,\\tilde m),\\qquad \\ell^{\\mathrm{new}}=e^{m-m^{\\mathrm{new}}}\\,\\ell+e^{\\tilde m-m^{\\mathrm{new}}}\\,\\tilde\\ell$$\nThe output accumulator is rescaled by $e^{m-m^{\\mathrm{new}}}$ before adding the new tile's contribution — numerically stable and single-pass."
+    },
+    {
+      "front": "Why is attention memory-bound rather than compute-bound on GPUs?",
+      "back": "Standard attention does $O(N^2)$ reads/writes of scores/probabilities to HBM while doing relatively little math per byte (low arithmetic intensity). GPU FLOPs vastly outstrip HBM bandwidth, so runtime is dominated by data movement — the quantity FlashAttention minimizes."
+    }
+  ],
+  "cv-07": [
+    {
+      "front": "How does ViT turn an image into transformer tokens?",
+      "back": "Split the image into $P\\times P$ patches ($N=HW/P^2$ of them), flatten each and linearly project to $d$ dims, prepend a learnable [CLS] token, add learned position embeddings — then run a standard Transformer encoder."
+    },
+    {
+      "front": "Why does ViT need more data than CNNs to train from scratch?",
+      "back": "It lacks convolutional inductive biases (locality, translation equivariance, 2-D structure), so those regularities must be learned from data. With large-scale pretraining (ImageNet-21k/JFT) ViT matches or beats CNNs, and scales better."
+    }
+  ],
+  "reg-19": [
+    {
+      "front": "Define Expected Calibration Error (ECE).",
+      "back": "Bin predictions by confidence; then $$\\mathrm{ECE}=\\sum_{m=1}^{M}\\frac{|B_m|}{n}\\,\\bigl|\\mathrm{acc}(B_m)-\\mathrm{conf}(B_m)\\bigr|$$ — the confidence-weighted gap between accuracy and confidence."
+    },
+    {
+      "front": "What is temperature scaling and why is it attractive in regulated settings?",
+      "back": "Divide logits by a single scalar $T>1$ fitted on validation NLL: $\\hat p=\\mathrm{softmax}(z/T)$. It changes confidence but **not** the argmax (accuracy preserved), has one parameter (hard to overfit), and is trivial to audit."
+    }
+  ],
+  "reg-20": [
+    {
+      "front": "State the split conformal prediction coverage guarantee.",
+      "back": "With exchangeable calibration data, form prediction sets from the $\\lceil(n+1)(1-\\alpha)\\rceil/n$ empirical quantile $\\hat q$ of nonconformity scores: $C(x)=\\{y: s(x,y)\\le\\hat q\\}$. Then $$P\\bigl(Y_{\\mathrm{test}}\\in C(X_{\\mathrm{test}})\\bigr)\\ge 1-\\alpha$$ — distribution-free, finite-sample, **marginal** coverage."
+    },
+    {
+      "front": "What conformal prediction does NOT guarantee (common misreadings).",
+      "back": "No conditional coverage (per-input or per-group) without extra assumptions; no validity under distribution shift that breaks exchangeability; and set size (efficiency) depends entirely on the underlying score/model quality."
+    }
+  ]
+}
