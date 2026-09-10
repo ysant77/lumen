@@ -1,7 +1,7 @@
 {
   "name": "lumen",
   "private": true,
-  "version": "1.2.1",
+  "version": "1.2.2",
   "description": "A focused reading room for AI papers: track progress, take notes, run code, rehearse math.",
   "type": "module",
   "scripts": {

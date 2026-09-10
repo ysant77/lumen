@@ -92,8 +92,40 @@ export default function EvidencePane({ item }: { item: CatalogItem }) {
     closeForm()
   }
 
+  const formOf = (r: ExperimentRecord) => ({ ...EMPTY_FORM, ...r, snippetId: r.snippetId ?? '' })
+
+  /**
+   * Transition guard: does the form hold content that would be lost if it
+   * were replaced? Baseline is the record being edited (or empty for a new
+   * draft), so merely *viewing* a record in the form counts as clean.
+   */
+  const hasUnsavedDraft = () => {
+    const source = editingId ? records.find((r) => r.id === editingId) : undefined
+    const base: Record<string, string> = source ? formOf(source) : EMPTY_FORM
+    return (Object.keys(EMPTY_FORM) as Array<keyof typeof EMPTY_FORM>).some(
+      (k) => String(form[k] ?? '').trim() !== String(base[k] ?? '').trim(),
+    )
+  }
+
   const startEdit = (r: ExperimentRecord) => {
-    setForm({ ...EMPTY_FORM, ...r, snippetId: r.snippetId ?? '' })
+    // Same record: never reset unsaved edits — just make sure the form shows.
+    if (editingId === r.id) {
+      setFormOpen(true)
+      return
+    }
+    // A different target while unsaved draft content exists (open form, or a
+    // draft parked via "Close (keep draft)"): replacing requires explicit
+    // consent. Declining changes nothing — neither the visible form nor the
+    // stored draft (no state transition, so the persist effect never fires).
+    if (
+      hasUnsavedDraft() &&
+      !confirm(
+        `Replace your unsaved ${editingId ? 'edit of another record' : 'experiment draft'} with "${r.title}"?\nThe current draft will be lost.`,
+      )
+    ) {
+      return
+    }
+    setForm(formOf(r))
     setEditingId(r.id)
     setFormOpen(true)
     setRestored(false)

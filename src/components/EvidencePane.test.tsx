@@ -83,6 +83,98 @@ describe('EvidencePane — unfinished drafts survive unmount (regression)', () =
     expect((screen.getByLabelText('Title') as HTMLInputElement).value).toBe('keep me')
   })
 
+  const recordA = {
+    id: 'rec-a',
+    title: 'experiment A',
+    hypothesis: 'baseline hypothesis',
+    baseline: '',
+    split: '',
+    metric: '',
+    result: '',
+    limitations: '',
+    artifactUrl: '',
+    createdAt: 'x',
+    updatedAt: 'x',
+  }
+
+  it('REGRESSION: Edit on a record must not silently replace an unsaved draft (decline path)', () => {
+    useData.getState().saveExperiments('llm-01', [recordA])
+    vi.mocked(confirm).mockReturnValue(false)
+    render(<EvidencePane item={item} />)
+
+    // start a new unsaved draft B…
+    openFormAndType('draft B', 'unrelated idea')
+    // …then click Edit on experiment A and DECLINE the replacement
+    fireEvent.click(screen.getByRole('button', { name: 'Edit experiment A' }))
+
+    expect(vi.mocked(confirm)).toHaveBeenCalledWith(expect.stringMatching(/replace.*unsaved/is))
+    // visible form unchanged
+    expect((screen.getByLabelText('Title') as HTMLInputElement).value).toBe('draft B')
+    // stored draft unchanged (still draft B, still a NEW-record draft)
+    expect(loadEvidenceDraft('llm-01')).toMatchObject({
+      form: { title: 'draft B' },
+      editingId: null,
+    })
+  })
+
+  it('accepting the replacement loads record A into form and draft', () => {
+    useData.getState().saveExperiments('llm-01', [recordA])
+    vi.mocked(confirm).mockReturnValue(true)
+    render(<EvidencePane item={item} />)
+    openFormAndType('draft B', 'unrelated idea')
+    fireEvent.click(screen.getByRole('button', { name: 'Edit experiment A' }))
+    expect((screen.getByLabelText('Title') as HTMLInputElement).value).toBe('experiment A')
+    expect(loadEvidenceDraft('llm-01')).toMatchObject({ editingId: 'rec-a' })
+  })
+
+  it('Edit on the SAME record never resets unsaved edits (and never nags)', () => {
+    useData.getState().saveExperiments('llm-01', [recordA])
+    render(<EvidencePane item={item} />)
+    // open A cleanly (empty form -> no confirmation expected)
+    fireEvent.click(screen.getByRole('button', { name: 'Edit experiment A' }))
+    expect(vi.mocked(confirm)).not.toHaveBeenCalled()
+    // modify it, then click Edit on the same record again
+    fireEvent.change(screen.getByLabelText('Title'), { target: { value: 'A modified' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Edit experiment A' }))
+    expect(vi.mocked(confirm)).not.toHaveBeenCalled()
+    expect((screen.getByLabelText('Title') as HTMLInputElement).value).toBe('A modified')
+    expect(loadEvidenceDraft('llm-01')).toMatchObject({ form: { title: 'A modified' } })
+  })
+
+  it('switching between records without unsaved edits does not nag', () => {
+    const recordB = { ...recordA, id: 'rec-b', title: 'experiment B' }
+    useData.getState().saveExperiments('llm-01', [recordA, recordB])
+    render(<EvidencePane item={item} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Edit experiment A' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Edit experiment B' })) // pristine view of A
+    expect(vi.mocked(confirm)).not.toHaveBeenCalled()
+    expect((screen.getByLabelText('Title') as HTMLInputElement).value).toBe('experiment B')
+  })
+
+  it('a draft parked with "Close (keep draft)" is also protected from Edit', () => {
+    useData.getState().saveExperiments('llm-01', [recordA])
+    vi.mocked(confirm).mockReturnValue(false)
+    render(<EvidencePane item={item} />)
+    openFormAndType('parked draft', 'to finish later')
+    fireEvent.click(screen.getByRole('button', { name: 'Close (keep draft)' }))
+    expect(screen.queryByLabelText('Title')).toBeNull() // form hidden, draft kept
+
+    fireEvent.click(screen.getByRole('button', { name: 'Edit experiment A' }))
+    expect(vi.mocked(confirm)).toHaveBeenCalledTimes(1)
+    // declined: form stays closed, stored draft untouched
+    expect(screen.queryByLabelText('Title')).toBeNull()
+    expect(loadEvidenceDraft('llm-01')).toMatchObject({
+      form: { title: 'parked draft' },
+      editingId: null,
+    })
+
+    // accepting later replaces it deliberately
+    vi.mocked(confirm).mockReturnValue(true)
+    fireEvent.click(screen.getByRole('button', { name: 'Edit experiment A' }))
+    expect((screen.getByLabelText('Title') as HTMLInputElement).value).toBe('experiment A')
+    expect(loadEvidenceDraft('llm-01')).toMatchObject({ editingId: 'rec-a' })
+  })
+
   it('editing a record deleted elsewhere falls back to creating, not dropping content', async () => {
     useData.getState().saveExperiments('llm-01', [
       {
