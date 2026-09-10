@@ -43,6 +43,8 @@ describe('tracked paths', () => {
     expect(t.test('decks/cv-12.json')).toBe(true)
     expect(t.test('code/reg-03.json')).toBe(true)
     expect(t.test('sessions.json')).toBe(true)
+    expect(t.test('custom.json')).toBe(true)
+    expect(t.test('radar.json')).toBe(true)
     expect(t.test('README.md')).toBe(false)
     expect(t.test('.github/workflows/x.yml')).toBe(false)
     expect(t.test('notes/../evil')).toBe(false)

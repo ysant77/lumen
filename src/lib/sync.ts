@@ -2,7 +2,8 @@ import type { Doc, SyncConfig, SyncReport } from '../types'
 import { fetchBlobText, fetchHead, pushFiles, type RemoteHead } from './github'
 
 const CONFIG_KEY = 'lumen.sync.config'
-const TRACKED = /^(progress\.json|sessions\.json|notes\/.+\.md|code\/.+\.json|decks\/.+\.json)$/
+const TRACKED =
+  /^(progress\.json|sessions\.json|custom\.json|radar\.json|notes\/.+\.md|code\/.+\.json|decks\/.+\.json)$/
 
 export function getSyncConfig(): SyncConfig | null {
   try {

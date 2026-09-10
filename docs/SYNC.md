@@ -9,6 +9,8 @@ browser.
 ```
 progress.json        status / reading position / timestamps per item
 sessions.json        focus-session log
+custom.json          papers you added from Radar (your Inbox)
+radar.json           your Radar topics + last-checked markers
 notes/<item>.md      one Markdown file per paper
 code/<item>.json     Python snippets per paper
 decks/<item>.json    flashcards incl. FSRS scheduling state

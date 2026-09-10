@@ -129,6 +129,7 @@ interface ImportStats {
 function PdfSection() {
   const refreshPdfList = useData((s) => s.refreshPdfList)
   const available = useData((s) => s.pdfsAvailable)
+  const customItems = useData((s) => s.customItems)
   const [stats, setStats] = useState<ImportStats | null>(null)
   const [usage, setUsage] = useState<{ usage: number; quota: number } | null>(null)
   const [persisted, setPersisted] = useState<boolean | null>(null)
@@ -136,7 +137,9 @@ function PdfSection() {
   const dirRef = useRef<HTMLInputElement>(null)
   const filesRef = useRef<HTMLInputElement>(null)
 
-  const wanted = new Set(allItems().map((i) => i.pdfFile).filter(Boolean) as string[])
+  const wanted = new Set(
+    [...allItems(), ...customItems].map((i) => i.pdfFile).filter(Boolean) as string[],
+  )
   const importedCount = [...wanted].filter((w) => available.has(w)).length
 
   useEffect(() => {

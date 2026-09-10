@@ -41,6 +41,36 @@ export interface Catalog {
   collections: Collection[]
 }
 
+// ---------- Radar (latest-paper discovery) & custom items ----------
+
+export interface RadarTopic {
+  id: string
+  label: string
+  query: string
+  /** look-back window in days */
+  days: number
+  lastChecked?: string
+}
+
+export interface RadarPaper {
+  id: string
+  title: string
+  abstract: string | null
+  date: string
+  venue: string | null
+  authors: string[]
+  landingUrl: string | null
+  doi: string | null
+  arxivId: string | null
+  citedBy: number
+}
+
+/** A paper added by the user (e.g. from Radar) — lives in the synced Inbox. */
+export interface CustomItem extends CatalogItem {
+  addedAt: string
+  source: 'radar' | 'manual'
+}
+
 // ---------- User data (synced to the private data repo) ----------
 
 export type ItemStatus = 'not-started' | 'reading' | 'implementing' | 'done' | 'skipped'

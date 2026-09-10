@@ -1,4 +1,4 @@
-import type { Catalog, CatalogItem, Collection } from '../types'
+import type { Catalog, CatalogItem, Collection, CustomItem } from '../types'
 import raw from '../data/catalog.json'
 
 export const catalog = raw as unknown as Catalog
@@ -10,6 +10,26 @@ for (const c of catalog.collections) {
 
 export function getItem(id: string) {
   return itemIndex.get(id)
+}
+
+/** Virtual collection for user-added papers (Radar → Inbox). */
+export function inboxCollection(customItems: CustomItem[]): Collection {
+  return {
+    id: 'inbox',
+    icon: 'inbox',
+    title: 'Inbox',
+    subtitle: 'Papers you added from Radar — triage into your reading flow',
+    phases: ['Inbox'],
+    items: customItems,
+  }
+}
+
+/** Resolve an item id against the static catalog first, then the user's inbox. */
+export function resolveItem(id: string, customItems: CustomItem[]) {
+  const hit = itemIndex.get(id)
+  if (hit) return hit
+  const custom = customItems.find((i) => i.id === id)
+  return custom ? { item: custom, collection: inboxCollection(customItems) } : undefined
 }
 
 export function allItems(): CatalogItem[] {

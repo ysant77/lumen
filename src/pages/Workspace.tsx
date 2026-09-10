@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
-import { getItem } from '../lib/catalog'
+import { resolveItem } from '../lib/catalog'
 import { useData } from '../store/data'
 import { useTimer } from '../store/timer'
 import PdfReader from '../components/PdfReader'
@@ -23,7 +23,8 @@ const TABS: Array<{ id: Tab; label: string; icon: string }> = [
 export default function Workspace() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
-  const found = id ? getItem(id) : undefined
+  const customItems = useData((s) => s.customItems)
+  const found = id ? resolveItem(id, customItems) : undefined
   const progress = useData((s) => (id ? s.progress[id] : undefined))
   const setStatus = useData((s) => s.setStatus)
   const attach = useTimer((s) => s.attach)
@@ -110,7 +111,7 @@ export default function Workspace() {
       <div className="flex min-h-0 flex-1">
         {showReader && (
           <div className={cn('min-w-0', showWork ? 'hidden flex-1 border-r border-neutral-800 md:block' : 'flex-1')}>
-            <PdfReader itemId={id} pdfFile={item.pdfFile} />
+            <PdfReader itemId={id} pdfFile={item.pdfFile} pdfUrl={item.pdfUrl} />
           </div>
         )}
         {showWork && (

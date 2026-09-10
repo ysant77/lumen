@@ -2,10 +2,17 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import * as pdfjs from 'pdfjs-dist'
 import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
 import type { PDFDocumentProxy, PDFPageProxy } from 'pdfjs-dist'
-import { readPdf } from '../lib/opfs'
+import { readPdf, writePdf } from '../lib/opfs'
 import { useData } from '../store/data'
 import { Button, EmptyState, Icon, Spinner } from './ui'
 import { Link } from 'react-router-dom'
+
+/** Direct-download URL when the source allows browser fetches (arXiv serves CORS). */
+function fetchableUrl(pdfUrl: string | null | undefined): string | null {
+  if (!pdfUrl) return null
+  const m = /arxiv\.org\/(?:abs|pdf)\/(\d{4}\.\d{4,5})/.exec(pdfUrl)
+  return m ? `https://arxiv.org/pdf/${m[1]}` : null
+}
 
 pdfjs.GlobalWorkerOptions.workerSrc = workerUrl
 
@@ -103,10 +110,21 @@ function PageView({
   )
 }
 
-export default function PdfReader({ itemId, pdfFile }: { itemId: string; pdfFile: string | null }) {
+export default function PdfReader({
+  itemId,
+  pdfFile,
+  pdfUrl,
+}: {
+  itemId: string
+  pdfFile: string | null
+  pdfUrl?: string | null
+}) {
   const [doc, setDoc] = useState<PDFDocumentProxy | null>(null)
   const [pageSizes, setPageSizes] = useState<PageInfo[]>([])
   const [state, setState] = useState<'loading' | 'ready' | 'missing' | 'unsupported'>('loading')
+  const [fetching, setFetching] = useState(false)
+  const [fetchError, setFetchError] = useState<string | null>(null)
+  const [reloadTick, setReloadTick] = useState(0)
   const [fitScale, setFitScale] = useState(1)
   const [zoom, setZoom] = useState<number | 'fit'>('fit')
   const [currentPage, setCurrentPage] = useState(1)
@@ -156,7 +174,29 @@ export default function PdfReader({ itemId, pdfFile }: { itemId: string; pdfFile
       cancelled = true
       void loaded?.destroy()
     }
-  }, [pdfFile])
+  }, [pdfFile, reloadTick])
+
+  const fetchFromSource = useCallback(async () => {
+    const url = fetchableUrl(pdfUrl)
+    if (!url || !pdfFile) return
+    setFetching(true)
+    setFetchError(null)
+    try {
+      const res = await fetch(url)
+      const buf = await res.arrayBuffer()
+      const head = new Uint8Array(buf.slice(0, 5))
+      if (!res.ok || String.fromCharCode(...head) !== '%PDF-') {
+        throw new Error(`source returned ${res.status}`)
+      }
+      await writePdf(pdfFile, buf)
+      await useData.getState().refreshPdfList()
+      setReloadTick((t) => t + 1)
+    } catch (e: any) {
+      setFetchError(e?.message ?? String(e))
+    } finally {
+      setFetching(false)
+    }
+  }, [pdfUrl, pdfFile])
 
   // fit-width scale
   useEffect(() => {
@@ -224,20 +264,32 @@ export default function PdfReader({ itemId, pdfFile }: { itemId: string; pdfFile
   const pages = useMemo(() => Array.from({ length: pageSizes.length }, (_, i) => i + 1), [pageSizes.length])
 
   if (state === 'missing') {
+    const canFetch = !!fetchableUrl(pdfUrl) && !!pdfFile
     return (
-      <EmptyState title="PDF not imported on this device">
-        {pdfFile ? (
-          <>
-            Import your library in{' '}
-            <Link to="/settings" className="text-amber-400 underline">
-              Settings → PDF library
-            </Link>{' '}
-            (expects <code className="text-neutral-400">{pdfFile}</code>)
-          </>
-        ) : (
-          'No freely downloadable PDF exists for this item — use the source link in the Info tab.'
-        )}
-      </EmptyState>
+      <div className="p-4">
+        <EmptyState title="PDF not on this device yet">
+          {canFetch && (
+            <div className="mb-3 flex flex-col items-center gap-1.5">
+              <Button variant="primary" onClick={() => void fetchFromSource()} disabled={fetching}>
+                {fetching ? <Spinner className="h-3.5 w-3.5" /> : <Icon name="download" className="h-3.5 w-3.5" />}
+                Fetch from arXiv
+              </Button>
+              {fetchError && <span className="text-red-400">failed: {fetchError}</span>}
+            </div>
+          )}
+          {pdfFile ? (
+            <>
+              Or import your library in{' '}
+              <Link to="/settings" className="text-amber-400 underline">
+                Settings → PDF library
+              </Link>{' '}
+              (expects <code className="text-neutral-400">{pdfFile}</code>)
+            </>
+          ) : (
+            'No freely downloadable PDF exists for this item — use the source link in the Info tab.'
+          )}
+        </EmptyState>
+      </div>
     )
   }
   if (state === 'unsupported') return <EmptyState title="Could not render this PDF" />

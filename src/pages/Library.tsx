@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
-import { catalog } from '../lib/catalog'
+import { catalog, inboxCollection } from '../lib/catalog'
 import { useData } from '../store/data'
 import type { CatalogItem, ItemStatus } from '../types'
 import { Chip, Icon, ProgressBar, StatusSelect, cn } from '../components/ui'
@@ -10,10 +10,11 @@ const PRIORITY_TONE: Record<string, string> = {
   Important: 'border-sky-900 text-sky-400',
 }
 
-function ItemRow({ item }: { item: CatalogItem }) {
+function ItemRow({ item, removable }: { item: CatalogItem; removable?: boolean }) {
   const navigate = useNavigate()
   const progress = useData((s) => s.progress[item.id])
   const setStatus = useData((s) => s.setStatus)
+  const removeCustomItem = useData((s) => s.removeCustomItem)
   const hasPdf = useData((s) => (item.pdfFile ? s.pdfsAvailable.has(item.pdfFile) : false))
   const status = progress?.status ?? 'not-started'
 
@@ -50,8 +51,20 @@ function ItemRow({ item }: { item: CatalogItem }) {
           )}
         </div>
       </div>
-      <span onClick={(e) => e.stopPropagation()}>
+      <span onClick={(e) => e.stopPropagation()} className="flex items-center gap-1">
         <StatusSelect value={status} onChange={(s) => setStatus(item.id, s)} />
+        {removable && (
+          <button
+            onClick={() => {
+              if (confirm(`Remove "${item.shortName}" from your inbox? Notes/cards are kept in your data repo.`))
+                removeCustomItem(item.id)
+            }}
+            className="p-1 text-neutral-700 hover:text-red-400"
+            title="Remove from inbox"
+          >
+            <Icon name="trash" className="h-3.5 w-3.5" />
+          </button>
+        )}
       </span>
     </li>
   )
@@ -60,11 +73,16 @@ function ItemRow({ item }: { item: CatalogItem }) {
 export default function Library() {
   const { collectionId } = useParams<{ collectionId?: string }>()
   const progress = useData((s) => s.progress)
+  const customItems = useData((s) => s.customItems)
   const [query, setQuery] = useState('')
   const [statusFilter, setStatusFilter] = useState<'all' | ItemStatus>('all')
   const [coreOnly, setCoreOnly] = useState(false)
 
-  const collection = catalog.collections.find((c) => c.id === collectionId) ?? catalog.collections[0]
+  const collections = useMemo(
+    () => (customItems.length > 0 ? [...catalog.collections, inboxCollection(customItems)] : catalog.collections),
+    [customItems],
+  )
+  const collection = collections.find((c) => c.id === collectionId) ?? collections[0]
 
   const filtered = useMemo(() => {
     const q = query.toLowerCase()
@@ -93,7 +111,7 @@ export default function Library() {
     <div className="mx-auto max-w-4xl p-4 md:p-6">
       {/* collection tabs */}
       <div className="mb-4 flex gap-1.5 overflow-x-auto pb-1">
-        {catalog.collections.map((c) => (
+        {collections.map((c) => (
           <Link
             key={c.id}
             to={`/library/${c.id}`}
@@ -163,7 +181,7 @@ export default function Library() {
           </h2>
           <ul className="flex flex-col">
             {items.map((it) => (
-              <ItemRow key={it.id} item={it} />
+              <ItemRow key={it.id} item={it} removable={collection.id === 'inbox'} />
             ))}
           </ul>
         </section>

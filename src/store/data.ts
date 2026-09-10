@@ -2,14 +2,17 @@ import { create } from 'zustand'
 import { unzipSync, zipSync, strToU8, strFromU8 } from 'fflate'
 import type {
   CodeSnippet,
+  CustomItem,
   Flashcard,
   FocusSession,
   ItemStatus,
   ProgressEntry,
+  RadarTopic,
   SyncReport,
 } from '../types'
 import { clearAllDocs, getAllDocs, getDoc, putDoc } from '../lib/db'
 import { listPdfs } from '../lib/opfs'
+import { DEFAULT_TOPICS } from '../lib/radar'
 import { getSyncConfig, runSync, type SyncStore } from '../lib/sync'
 
 const AUTO_SYNC_DELAY = 45_000
@@ -21,6 +24,8 @@ interface DataState {
   code: Record<string, CodeSnippet[]>
   decks: Record<string, Flashcard[]>
   sessions: FocusSession[]
+  customItems: CustomItem[]
+  radarTopics: RadarTopic[]
   pdfsAvailable: Set<string>
   syncing: boolean
   lastSync: SyncReport | null
@@ -33,6 +38,9 @@ interface DataState {
   saveSnippets(itemId: string, snippets: CodeSnippet[]): void
   saveDeck(itemId: string, cards: Flashcard[]): void
   addSession(s: FocusSession): void
+  addCustomItem(item: CustomItem): void
+  removeCustomItem(itemId: string): void
+  saveRadarTopics(topics: RadarTopic[]): void
   syncNow(): Promise<SyncReport | null>
   exportAll(): Blob
   importAll(data: ArrayBuffer): Promise<number>
@@ -83,6 +91,10 @@ function parseDoc(path: string, content: string, state: Partial<DataState>) {
     } else if (path.startsWith('decks/') && path.endsWith('.json')) {
       const id = path.slice('decks/'.length, -'.json'.length)
       state.decks = { ...(state.decks ?? {}), [id]: JSON.parse(content).cards ?? [] }
+    } else if (path === 'custom.json') {
+      state.customItems = JSON.parse(content).items ?? []
+    } else if (path === 'radar.json') {
+      state.radarTopics = JSON.parse(content).topics ?? []
     }
   } catch (e) {
     console.warn(`lumen: could not parse ${path}`, e)
@@ -96,6 +108,8 @@ export const useData = create<DataState>((set, get) => ({
   code: {},
   decks: {},
   sessions: [],
+  customItems: [],
+  radarTopics: DEFAULT_TOPICS,
   pdfsAvailable: new Set(),
   syncing: false,
   lastSync: null,
@@ -111,6 +125,8 @@ export const useData = create<DataState>((set, get) => ({
       code: parsed.code ?? {},
       decks: parsed.decks ?? {},
       sessions: parsed.sessions ?? [],
+      customItems: parsed.customItems ?? [],
+      radarTopics: parsed.radarTopics?.length ? parsed.radarTopics : DEFAULT_TOPICS,
     })
     await get().refreshPdfList()
     if (getSyncConfig()?.auto && navigator.onLine) void get().syncNow()
@@ -177,6 +193,27 @@ export const useData = create<DataState>((set, get) => ({
     scheduleAutoSync(() => void get().syncNow())
   },
 
+  addCustomItem(item) {
+    if (get().customItems.some((i) => i.id === item.id)) return
+    const customItems = [...get().customItems, item]
+    set({ customItems })
+    void writeDoc('custom.json', JSON.stringify({ version: 1, items: customItems }, null, 1))
+    scheduleAutoSync(() => void get().syncNow())
+  },
+
+  removeCustomItem(itemId) {
+    const customItems = get().customItems.filter((i) => i.id !== itemId)
+    set({ customItems })
+    void writeDoc('custom.json', JSON.stringify({ version: 1, items: customItems }, null, 1))
+    scheduleAutoSync(() => void get().syncNow())
+  },
+
+  saveRadarTopics(topics) {
+    set({ radarTopics: topics })
+    void writeDoc('radar.json', JSON.stringify({ version: 1, topics }, null, 1))
+    scheduleAutoSync(() => void get().syncNow())
+  },
+
   async syncNow() {
     const cfg = getSyncConfig()
     if (!cfg || get().syncing) return null
@@ -220,6 +257,8 @@ export const useData = create<DataState>((set, get) => ({
     const s = get()
     files['progress.json'] = strToU8(JSON.stringify({ version: 1, items: s.progress }, null, 1))
     files['sessions.json'] = strToU8(JSON.stringify({ version: 1, sessions: s.sessions }, null, 1))
+    files['custom.json'] = strToU8(JSON.stringify({ version: 1, items: s.customItems }, null, 1))
+    files['radar.json'] = strToU8(JSON.stringify({ version: 1, topics: s.radarTopics }, null, 1))
     for (const [id, md] of Object.entries(s.notes)) files[`notes/${id}.md`] = strToU8(md)
     for (const [id, sn] of Object.entries(s.code))
       files[`code/${id}.json`] = strToU8(JSON.stringify({ version: 1, snippets: sn }, null, 1))
@@ -233,7 +272,11 @@ export const useData = create<DataState>((set, get) => ({
     const files = unzipSync(new Uint8Array(data))
     let count = 0
     for (const [path, bytes] of Object.entries(files)) {
-      if (!/^(progress\.json|sessions\.json|notes\/.+\.md|code\/.+\.json|decks\/.+\.json)$/.test(path))
+      if (
+        !/^(progress\.json|sessions\.json|custom\.json|radar\.json|notes\/.+\.md|code\/.+\.json|decks\/.+\.json)$/.test(
+          path,
+        )
+      )
         continue
       const content = strFromU8(bytes)
       await writeDoc(path, content)
@@ -245,6 +288,15 @@ export const useData = create<DataState>((set, get) => ({
 
   async clearLocal() {
     await clearAllDocs()
-    set({ progress: {}, notes: {}, code: {}, decks: {}, sessions: [], lastSync: null })
+    set({
+      progress: {},
+      notes: {},
+      code: {},
+      decks: {},
+      sessions: [],
+      customItems: [],
+      radarTopics: DEFAULT_TOPICS,
+      lastSync: null,
+    })
   },
 }))
