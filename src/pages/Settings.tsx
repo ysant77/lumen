@@ -3,6 +3,8 @@ import { Unzip, UnzipInflate } from 'fflate'
 import { allItems } from '../lib/catalog'
 import { getSyncConfig, setSyncConfig } from '../lib/sync'
 import { testConnection } from '../lib/github'
+import { validateBackup, type BackupSummary } from '../lib/backup'
+import type { Doc } from '../types'
 import {
   clearPdfs,
   opfsSupported,
@@ -79,7 +81,7 @@ function SyncSection() {
       </div>
       <label className="mt-2 flex items-center gap-2 text-xs text-neutral-400">
         <input type="checkbox" checked={auto} onChange={(e) => setAuto(e.target.checked)} className="accent-amber-500" />
-        Auto-sync after edits (~45 s debounce) and on launch
+        Auto-push to your data repo after edits (~45 s) and on launch — off by default; manual Sync always works
       </label>
       <div className="mt-3 flex flex-wrap items-center gap-2">
         <Button variant="primary" onClick={save}>Save</Button>
@@ -93,7 +95,7 @@ function SyncSection() {
           <span className={cn('text-[11px]', lastSync.error ? 'text-red-400' : 'text-neutral-500')}>
             {lastSync.error
               ? `error: ${lastSync.error}`
-              : `last sync ${new Date(lastSync.at).toLocaleTimeString()} · ↓${lastSync.pulled} ↑${lastSync.pushed}${lastSync.conflictsKeptLocal ? ` · ${lastSync.conflictsKeptLocal} conflict(s), local kept` : ''}`}
+              : `last sync ${new Date(lastSync.at).toLocaleTimeString()} · ↓${lastSync.pulled} ↑${lastSync.pushed}${lastSync.merged ? ` · ${lastSync.merged} merged` : ''}${lastSync.conflictsSaved ? ` · ${lastSync.conflictsSaved} conflict cop${lastSync.conflictsSaved === 1 ? 'y' : 'ies'} saved` : ''}`}
           </span>
         )}
       </div>
@@ -321,27 +323,57 @@ function PdfSection() {
 
 // ---------------- Data ----------------
 
+function downloadBlob(blob: Blob, name: string) {
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = name
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
 function DataSection() {
   const exportAll = useData((s) => s.exportAll)
-  const importAll = useData((s) => s.importAll)
+  const restoreBackup = useData((s) => s.restoreBackup)
   const clearLocal = useData((s) => s.clearLocal)
+  const listConflicts = useData((s) => s.listConflicts)
+  const resolveConflict = useData((s) => s.resolveConflict)
   const importRef = useRef<HTMLInputElement>(null)
   const [msg, setMsg] = useState<string | null>(null)
+  const [pendingRestore, setPendingRestore] = useState<BackupSummary | null>(null)
+  const [conflicts, setConflicts] = useState<Doc[]>([])
 
-  const download = () => {
-    const blob = exportAll()
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `lumen-backup-${new Date().toISOString().slice(0, 10)}.zip`
-    a.click()
-    URL.revokeObjectURL(url)
+  useEffect(() => {
+    void listConflicts().then(setConflicts)
+  }, [listConflicts, msg])
+
+  const download = () => downloadBlob(exportAll(), `lumen-backup-${new Date().toISOString().slice(0, 10)}.zip`)
+
+  const onPickBackup = async (f: File) => {
+    const summary = validateBackup(await f.arrayBuffer())
+    setMsg(null)
+    setPendingRestore(summary)
+  }
+
+  const applyRestore = async (mode: 'merge' | 'replace') => {
+    if (!pendingRestore?.ok) return
+    if (mode === 'replace') {
+      const phrase = prompt(
+        'REPLACE deletes all current local data first (a pre-restore backup will download automatically).\nType "replace" to confirm:',
+      )
+      if (phrase !== 'replace') return
+    }
+    // safety net: snapshot current data before any write
+    downloadBlob(exportAll(), `lumen-pre-restore-${Date.now()}.zip`)
+    const n = await restoreBackup(pendingRestore, mode)
+    setPendingRestore(null)
+    setMsg(`Restore (${mode}) applied: ${n} files. A pre-restore backup was downloaded.`)
   }
 
   return (
     <Section title="Your data">
       <p className="mb-3 text-[11px] text-neutral-500">
-        Notes, progress, code snippets, decks and focus sessions — as plain Markdown/JSON.
+        Notes, progress, code snippets, decks, experiments and focus sessions — plain Markdown/JSON.
       </p>
       <div className="flex flex-wrap gap-2">
         <input
@@ -349,29 +381,110 @@ function DataSection() {
           type="file"
           accept=".zip"
           hidden
-          onChange={async (e) => {
-            const f = e.target.files?.[0]
-            if (!f) return
-            const n = await importAll(await f.arrayBuffer())
-            setMsg(`Restored ${n} files.`)
-          }}
+          onChange={(e) => e.target.files?.[0] && void onPickBackup(e.target.files[0])}
         />
         <Button onClick={download}>
           <Icon name="download" className="h-3.5 w-3.5" /> Export backup (.zip)
         </Button>
         <Button onClick={() => importRef.current?.click()}>
-          <Icon name="upload" className="h-3.5 w-3.5" /> Restore backup
+          <Icon name="upload" className="h-3.5 w-3.5" /> Restore backup…
         </Button>
         <Button
           variant="danger"
           onClick={() => {
-            if (confirm('Delete ALL local notes, progress and decks on this device? (Synced copies in your data repo are unaffected.)'))
+            if (
+              confirm(
+                'Delete ALL local notes, progress and decks on this device? (Synced copies in your data repo are unaffected.)',
+              )
+            )
               void clearLocal().then(() => setMsg('Local data cleared.'))
           }}
         >
           <Icon name="trash" className="h-3.5 w-3.5" /> Clear local data
         </Button>
       </div>
+
+      {pendingRestore && (
+        <div className="mt-3 rounded-lg border border-neutral-700 bg-neutral-900/60 p-3">
+          {pendingRestore.ok ? (
+            <>
+              <p className="text-xs text-neutral-300">
+                Backup validated: {pendingRestore.progressItems} progress records,{' '}
+                {pendingRestore.sessions} sessions, {pendingRestore.counts.notes} notes,{' '}
+                {pendingRestore.counts.decks} decks, {pendingRestore.counts.code} code docs,{' '}
+                {pendingRestore.counts.experiments} experiment docs.
+              </p>
+              <p className="mt-1 text-[11px] text-neutral-500">
+                <b>Merge</b> combines records (newest wins per record; unmergeable notes become
+                conflict copies). <b>Replace</b> discards current local data first. Both download a
+                pre-restore backup automatically.
+              </p>
+              <div className="mt-2 flex gap-2">
+                <Button variant="primary" onClick={() => void applyRestore('merge')}>
+                  Merge into current data
+                </Button>
+                <Button variant="danger" onClick={() => void applyRestore('replace')}>
+                  Replace current data
+                </Button>
+                <Button variant="ghost" onClick={() => setPendingRestore(null)}>
+                  Cancel
+                </Button>
+              </div>
+            </>
+          ) : (
+            <>
+              <p className="text-xs text-red-400">Backup failed validation — nothing was written:</p>
+              <ul className="mt-1 list-disc pl-4 text-[11px] text-red-300">
+                {pendingRestore.errors.slice(0, 6).map((e) => (
+                  <li key={e}>{e}</li>
+                ))}
+              </ul>
+              <Button variant="ghost" className="mt-2" onClick={() => setPendingRestore(null)}>
+                Dismiss
+              </Button>
+            </>
+          )}
+        </div>
+      )}
+
+      {conflicts.length > 0 && (
+        <div className="mt-3 rounded-lg border border-orange-900/60 bg-orange-950/20 p-3">
+          <p className="mb-2 text-xs font-medium text-orange-300">
+            {conflicts.length} sync conflict cop{conflicts.length === 1 ? 'y' : 'ies'} preserved
+          </p>
+          <ul className="flex flex-col gap-1.5">
+            {conflicts.map((c) => (
+              <li key={c.path} className="flex flex-wrap items-center gap-2 text-[11px] text-neutral-400">
+                <code className="truncate">{c.path}</code>
+                <Button
+                  variant="ghost"
+                  className="px-2 py-0.5"
+                  onClick={() =>
+                    downloadBlob(new Blob([c.content], { type: 'text/plain' }), c.path.replace(/\//g, '_'))
+                  }
+                >
+                  download
+                </Button>
+                <Button
+                  variant="ghost"
+                  className="px-2 py-0.5"
+                  onClick={() => void resolveConflict(c.path, true).then(() => setMsg('Conflict version promoted.'))}
+                >
+                  use this version
+                </Button>
+                <Button
+                  variant="ghost"
+                  className="px-2 py-0.5"
+                  onClick={() => void resolveConflict(c.path, false).then(() => setMsg('Conflict copy discarded.'))}
+                >
+                  discard
+                </Button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
       {msg && <p className="mt-2 text-[11px] text-neutral-400">{msg}</p>}
     </Section>
   )

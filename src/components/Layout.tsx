@@ -12,31 +12,61 @@ const NAV = [
   { to: '/settings', label: 'Settings', icon: 'settings' },
 ]
 
+/**
+ * Sync status: makes "saved on this device" vs "confirmed in your data repo"
+ * legible at a glance, on every device.
+ */
 function SyncButton() {
   const syncing = useData((s) => s.syncing)
   const lastSync = useData((s) => s.lastSync)
+  const pending = useData((s) => s.dirtyPaths.length)
   const syncNow = useData((s) => s.syncNow)
   const configured = !!getSyncConfig()
+
   if (!configured) {
     return (
-      <Link to="/settings" className="flex items-center gap-1.5 text-xs text-neutral-500 hover:text-neutral-300">
+      <Link
+        to="/settings"
+        className="flex items-center gap-1.5 text-xs text-neutral-400 hover:text-neutral-200"
+        title={pending > 0 ? `${pending} change(s) saved on this device only` : 'Data stays on this device until sync is set up'}
+      >
         <Icon name="sync" className="h-3.5 w-3.5" />
-        <span className="hidden sm:inline">Set up sync</span>
+        <span className="hidden sm:inline">{pending > 0 ? `local only · ${pending}` : 'Set up sync'}</span>
       </Link>
     )
   }
+
+  const label = syncing
+    ? 'Syncing…'
+    : lastSync?.error
+      ? 'Sync error'
+      : pending > 0
+        ? `${pending} pending`
+        : lastSync
+          ? 'Synced'
+          : 'Sync'
   return (
     <button
       onClick={() => void syncNow()}
       disabled={syncing}
-      title={lastSync ? `Last sync ${new Date(lastSync.at).toLocaleTimeString()}${lastSync.error ? ` — ${lastSync.error}` : ''}` : 'Sync now'}
+      title={
+        (pending > 0 ? `${pending} change(s) saved locally, not yet in your data repo. ` : '') +
+        (lastSync
+          ? `Last sync ${new Date(lastSync.at).toLocaleTimeString()}${lastSync.error ? ` — ${lastSync.error}` : ''}`
+          : 'Sync now')
+      }
+      aria-label={`Sync now (${label})`}
       className="flex items-center gap-1.5 text-xs text-neutral-400 hover:text-amber-300 disabled:opacity-50"
     >
       {syncing ? <Spinner className="h-3.5 w-3.5" /> : <Icon name="sync" className="h-3.5 w-3.5" />}
-      <span className="hidden sm:inline">
-        {syncing ? 'Syncing…' : lastSync?.error ? 'Sync error' : 'Sync'}
-      </span>
-      {lastSync?.error && <span className="h-1.5 w-1.5 rounded-full bg-red-500" />}
+      <span className="hidden sm:inline">{label}</span>
+      {lastSync?.error ? (
+        <span className="h-1.5 w-1.5 rounded-full bg-red-500" />
+      ) : pending > 0 ? (
+        <span className="h-1.5 w-1.5 rounded-full bg-amber-400" />
+      ) : lastSync ? (
+        <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+      ) : null}
     </button>
   )
 }

@@ -50,6 +50,7 @@ export interface RadarTopic {
   /** look-back window in days */
   days: number
   lastChecked?: string
+  updatedAt?: string
 }
 
 export interface RadarPaper {
@@ -68,6 +69,7 @@ export interface RadarPaper {
 /** A paper added by the user (e.g. from Radar) — lives in the synced Inbox. */
 export interface CustomItem extends CatalogItem {
   addedAt: string
+  updatedAt?: string
   source: 'radar' | 'manual'
 }
 
@@ -75,12 +77,50 @@ export interface CustomItem extends CatalogItem {
 
 export type ItemStatus = 'not-started' | 'reading' | 'implementing' | 'done' | 'skipped'
 
+export type ReadDepth = 'skim' | 'read' | 'deep'
+
+/** Understanding checkpoints: timestamp when the user affirmed each. */
+export interface Checkpoints {
+  idea?: string // can state the core idea in own words
+  math?: string // can derive / explain the key math
+  repro?: string // reproduced a key result or exercise
+}
+
+export interface Bookmark {
+  page: number
+  createdAt: string
+}
+
 export interface ProgressEntry {
   status: ItemStatus
   startedAt?: string
   finishedAt?: string
   lastPage?: number
   totalPages?: number
+  depth?: ReadDepth
+  checks?: Checkpoints
+  bookmarks?: Bookmark[]
+  updatedAt: string
+}
+
+/** Lightweight experiment record (implementation evidence). */
+export interface ExperimentRecord {
+  id: string
+  title: string
+  hypothesis: string
+  baseline: string
+  split: string
+  metric: string
+  result: string
+  limitations: string
+  artifactUrl: string
+  snippetId?: string
+  createdAt: string
+  updatedAt: string
+}
+
+export interface WeekQueue {
+  items: string[]
   updatedAt: string
 }
 
@@ -144,7 +184,8 @@ export interface SyncConfig {
 export interface SyncReport {
   pulled: number
   pushed: number
-  conflictsKeptLocal: number
+  merged: number
+  conflictsSaved: number
   at: string
   error?: string
 }

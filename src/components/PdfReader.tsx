@@ -3,6 +3,7 @@ import * as pdfjs from 'pdfjs-dist'
 import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
 import type { PDFDocumentProxy, PDFPageProxy } from 'pdfjs-dist'
 import { readPdf, writePdf } from '../lib/opfs'
+import { pageFromScroll, scrollTopForPage } from '../lib/readerMath'
 import { useData } from '../store/data'
 import { Button, EmptyState, Icon, Spinner } from './ui'
 import { Link } from 'react-router-dom'
@@ -212,7 +213,7 @@ export default function PdfReader({
     return () => ro.disconnect()
   }, [pageSizes])
 
-  // visibility tracking
+  // render-visibility tracking (which pages get canvases)
   useEffect(() => {
     const el = containerRef.current
     if (!el || state !== 'ready') return
@@ -227,8 +228,6 @@ export default function PdfReader({
           }
           return next
         })
-        const tops = entries.filter((e) => e.isIntersecting).map((e) => Number((e.target as HTMLElement).dataset.page))
-        if (tops.length) setCurrentPage(Math.min(...tops))
       },
       { root: el, rootMargin: '600px 0px' },
     )
@@ -237,12 +236,52 @@ export default function PdfReader({
     return () => io.disconnect()
   }, [state, pageSizes.length, scale])
 
-  // persist reading position (debounced)
+  // current page: deterministic scroll geometry (stable across zoom/layout)
+  useEffect(() => {
+    const el = containerRef.current
+    if (!el || state !== 'ready' || pageSizes.length === 0) return
+    let raf = 0
+    const onScroll = () => {
+      cancelAnimationFrame(raf)
+      raf = requestAnimationFrame(() => {
+        setCurrentPage(
+          pageFromScroll(el.scrollTop, el.clientHeight, pageSizes[0].height * scale, PAGE_GAP, pageSizes.length),
+        )
+      })
+    }
+    el.addEventListener('scroll', onScroll, { passive: true })
+    return () => {
+      el.removeEventListener('scroll', onScroll)
+      cancelAnimationFrame(raf)
+    }
+  }, [state, pageSizes, scale])
+
+  // persist reading position (debounced) + flush immediately on unmount
+  const positionRef = useRef({ page: 1, total: 0 })
   useEffect(() => {
     if (state !== 'ready' || !doc) return
+    positionRef.current = { page: currentPage, total: doc.numPages }
     const t = setTimeout(() => setReadingPosition(itemId, currentPage, doc.numPages), 1500)
     return () => clearTimeout(t)
   }, [currentPage, state, doc, itemId, setReadingPosition])
+  useEffect(
+    () => () => {
+      const { page, total } = positionRef.current
+      if (total > 0) setReadingPosition(itemId, page, total)
+    },
+    [itemId, setReadingPosition],
+  )
+
+  const scrollToPage = useCallback(
+    (n: number) => {
+      const el = containerRef.current
+      if (!el || pageSizes.length === 0) return
+      const clamped = Math.min(pageSizes.length, Math.max(1, n))
+      el.scrollTop = scrollTopForPage(clamped, pageSizes[0].height * scale, PAGE_GAP, pageSizes.length)
+      setCurrentPage(clamped)
+    },
+    [pageSizes, scale],
+  )
 
   // restore last position once ready
   useEffect(() => {
@@ -254,12 +293,19 @@ export default function PdfReader({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state])
 
-  const scrollToPage = useCallback((n: number) => {
-    const el = containerRef.current?.querySelector(`[data-page="${n}"]`)
-    el?.scrollIntoView({ block: 'start' })
-  }, [])
-
-  const zoomBy = (f: number) => setZoom((z) => Math.min(4, Math.max(0.4, (z === 'fit' ? fitScale : z) * f)))
+  // zoom preserving the current page
+  const zoomBy = (f: number) => {
+    const keep = currentPage
+    setZoom((z) => Math.min(4, Math.max(0.4, (z === 'fit' ? fitScale : z) * f)))
+    requestAnimationFrame(() => requestAnimationFrame(() => scrollToPageRef.current(keep)))
+  }
+  const setZoomMode = (mode: 'fit') => {
+    const keep = currentPage
+    setZoom(mode)
+    requestAnimationFrame(() => requestAnimationFrame(() => scrollToPageRef.current(keep)))
+  }
+  const scrollToPageRef = useRef(scrollToPage)
+  scrollToPageRef.current = scrollToPage
 
   const pages = useMemo(() => Array.from({ length: pageSizes.length }, (_, i) => i + 1), [pageSizes.length])
 
@@ -310,7 +356,7 @@ export default function PdfReader({
         <Button variant="ghost" onClick={() => zoomBy(1.2)} title="Zoom in" className="px-2">
           +
         </Button>
-        <Button variant="ghost" onClick={() => setZoom('fit')} title="Fit width" className="px-2">
+        <Button variant="ghost" onClick={() => setZoomMode('fit')} title="Fit width" className="px-2">
           <Icon name="external" className="h-3.5 w-3.5 rotate-90" />
         </Button>
         <div className="ml-auto flex items-center gap-1 text-xs text-neutral-500">

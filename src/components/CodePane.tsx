@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import CodeMirror from '@uiw/react-codemirror'
 import { python } from '@codemirror/lang-python'
 import { oneDark } from '@codemirror/theme-one-dark'
 import type { CatalogItem, CodeSnippet } from '../types'
 import { useData } from '../store/data'
 import { pyRunner, type RunOutput } from '../lib/pyodide'
+import { usePendingSave } from '../lib/usePendingSave'
 import { Button, EmptyState, Icon, Spinner, cn } from './ui'
 
 const DEFAULT_SOURCE = `import numpy as np
@@ -30,33 +31,54 @@ export default function CodePane({ item }: { item: CatalogItem }) {
   const [running, setRunning] = useState(false)
   const [consoleLines, setConsoleLines] = useState<ConsoleLine[]>([])
   const [images, setImages] = useState<string[]>([])
-  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const active = snippets.find((s) => s.id === activeId) ?? snippets[0] ?? null
+
+  // The editor's latest keystrokes live here until persisted. Run/unmount/tab
+  // switches flush this draft — Run must never execute a stale saved source.
+  const draft = useRef<{ snippetId: string; source: string } | null>(null)
+  const snippetsRef = useRef(snippets)
+  snippetsRef.current = snippets
+
+  const persistDraft = useCallback((): CodeSnippet[] => {
+    const d = draft.current
+    if (!d) return snippetsRef.current
+    draft.current = null
+    const next = snippetsRef.current.map((s) =>
+      s.id === d.snippetId ? { ...s, source: d.source, updatedAt: new Date().toISOString() } : s,
+    )
+    saveSnippets(item.id, next)
+    return next
+  }, [item.id, saveSnippets])
+
+  const { schedule, flush } = usePendingSave<null>(() => persistDraft(), 800)
 
   useEffect(() => {
     if (!active && snippets.length > 0) setActiveId(snippets[0].id)
   }, [snippets, active])
 
+  const selectSnippet = (id: string) => {
+    flush() // persist the previous snippet's draft before switching
+    setActiveId(id)
+  }
+
   const addSnippet = () => {
+    const base = persistDraft()
     const snip: CodeSnippet = {
       id: crypto.randomUUID(),
-      title: `experiment ${snippets.length + 1}`,
+      title: `experiment ${base.length + 1}`,
       language: 'python',
       source: DEFAULT_SOURCE.replace('%TITLE%', item.shortName),
       updatedAt: new Date().toISOString(),
     }
-    saveSnippets(item.id, [...snippets, snip])
+    saveSnippets(item.id, [...base, snip])
     setActiveId(snip.id)
   }
 
   const updateSource = (source: string) => {
     if (!active) return
-    const next = snippets.map((s) =>
-      s.id === active.id ? { ...s, source, updatedAt: new Date().toISOString() } : s,
-    )
-    if (saveTimer.current) clearTimeout(saveTimer.current)
-    saveTimer.current = setTimeout(() => saveSnippets(item.id, next), 800)
+    draft.current = { snippetId: active.id, source }
+    schedule(null)
   }
 
   const rename = () => {
@@ -65,13 +87,14 @@ export default function CodePane({ item }: { item: CatalogItem }) {
     if (!title) return
     saveSnippets(
       item.id,
-      snippets.map((s) => (s.id === active.id ? { ...s, title } : s)),
+      persistDraft().map((s) => (s.id === active.id ? { ...s, title } : s)),
     )
   }
 
   const remove = () => {
     if (!active) return
     if (!confirm(`Delete "${active.title}"?`)) return
+    draft.current = null
     const next = snippets.filter((s) => s.id !== active.id)
     saveSnippets(item.id, next)
     setActiveId(next[0]?.id ?? null)
@@ -79,12 +102,9 @@ export default function CodePane({ item }: { item: CatalogItem }) {
 
   const run = async () => {
     if (!active || running) return
-    // flush any pending edit
-    if (saveTimer.current) {
-      clearTimeout(saveTimer.current)
-      saveTimer.current = null
-    }
-    const source = active.source
+    // persist the latest draft first, then execute exactly what was persisted
+    const latest = persistDraft()
+    const source = latest.find((s) => s.id === active.id)?.source ?? active.source
     setRunning(true)
     setConsoleLines([])
     setImages([])
@@ -125,7 +145,7 @@ export default function CodePane({ item }: { item: CatalogItem }) {
         {snippets.map((s) => (
           <button
             key={s.id}
-            onClick={() => setActiveId(s.id)}
+            onClick={() => selectSnippet(s.id)}
             className={cn(
               'rounded px-2.5 py-1 text-xs whitespace-nowrap',
               s.id === active?.id

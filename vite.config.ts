@@ -34,7 +34,10 @@ export default defineConfig({
       },
       workbox: {
         maximumFileSizeToCacheInBytes: 8 * 1024 * 1024,
-        globPatterns: ['**/*.{js,css,html,svg,png,woff2}'],
+        // NB: mjs matters — pdf.js ships its worker as .mjs; without it the
+        // first offline open of a paper fails to render.
+        globPatterns: ['**/*.{js,mjs,css,html,svg,png,woff2}'],
+        navigateFallback: '/lumen/index.html',
         runtimeCaching: [
           {
             // Pyodide runtime + wheels from the CDN: cache-first so the code
