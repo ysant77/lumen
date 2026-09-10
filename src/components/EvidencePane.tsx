@@ -1,6 +1,7 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import type { CatalogItem, Checkpoints, ExperimentRecord, ReadDepth } from '../types'
 import { useData } from '../store/data'
+import { clearEvidenceDraft, loadEvidenceDraft, saveEvidenceDraft } from '../lib/drafts'
 import { Button, Chip, EmptyState, Icon, cn } from './ui'
 
 const DEPTHS: Array<{ id: ReadDepth; label: string; hint: string }> = [
@@ -65,20 +66,45 @@ export default function EvidencePane({ item }: { item: CatalogItem }) {
   const saveExperiments = useData((s) => s.saveExperiments)
   const snippets = useData((s) => s.code[item.id]) ?? []
 
-  const [form, setForm] = useState(EMPTY_FORM)
-  const [editingId, setEditingId] = useState<string | null>(null)
-  const [formOpen, setFormOpen] = useState(false)
+  // Unfinished drafts persist per device (localStorage), separate from
+  // completed records — surviving tab switches, navigation and reloads.
+  const [initialDraft] = useState(() => loadEvidenceDraft(item.id))
+  const [form, setForm] = useState({ ...EMPTY_FORM, ...(initialDraft?.form ?? {}) })
+  const [editingId, setEditingId] = useState<string | null>(initialDraft?.editingId ?? null)
+  const [formOpen, setFormOpen] = useState(initialDraft != null)
+  const [restored, setRestored] = useState(initialDraft != null)
+
+  useEffect(() => {
+    if (formOpen) saveEvidenceDraft(item.id, form, editingId)
+  }, [form, editingId, formOpen, item.id])
+
+  const closeForm = () => {
+    setForm(EMPTY_FORM)
+    setEditingId(null)
+    setFormOpen(false)
+    setRestored(false)
+    clearEvidenceDraft(item.id)
+  }
+
+  const discard = () => {
+    const hasContent = Object.values(form).some((v) => String(v).trim())
+    if (hasContent && !confirm('Discard this unsaved experiment draft?')) return
+    closeForm()
+  }
 
   const startEdit = (r: ExperimentRecord) => {
     setForm({ ...EMPTY_FORM, ...r, snippetId: r.snippetId ?? '' })
     setEditingId(r.id)
     setFormOpen(true)
+    setRestored(false)
   }
 
   const submit = () => {
     if (!form.title.trim()) return
     const now = new Date().toISOString()
-    if (editingId) {
+    // the edited record may have been deleted on another device meanwhile —
+    // fall back to creating a new record rather than dropping the content
+    if (editingId && records.some((r) => r.id === editingId)) {
       saveExperiments(
         item.id,
         records.map((r) => (r.id === editingId ? { ...r, ...form, snippetId: form.snippetId || undefined, updatedAt: now } : r)),
@@ -93,9 +119,7 @@ export default function EvidencePane({ item }: { item: CatalogItem }) {
       }
       saveExperiments(item.id, [...records, rec])
     }
-    setForm(EMPTY_FORM)
-    setEditingId(null)
-    setFormOpen(false)
+    closeForm()
   }
 
   const remove = (id: string) => {
@@ -171,10 +195,10 @@ export default function EvidencePane({ item }: { item: CatalogItem }) {
           <Button
             variant="primary"
             onClick={() => {
-              setForm(EMPTY_FORM)
-              setEditingId(null)
+              // reopening never wipes a persisted draft; closing keeps it too
               setFormOpen(!formOpen)
             }}
+            aria-expanded={formOpen}
           >
             <Icon name="plus" className="h-3.5 w-3.5" /> Experiment
           </Button>
@@ -183,6 +207,12 @@ export default function EvidencePane({ item }: { item: CatalogItem }) {
           Small experiments run in the Code tab (browser Python); heavier GPU/notebook work lives
           outside — link it as the artifact.
         </p>
+        {restored && formOpen && (
+          <p className="mb-2 flex items-center gap-1.5 text-[11px] text-amber-300/90" data-testid="draft-restored">
+            <Icon name="info" className="h-3.5 w-3.5" />
+            Unsaved draft restored — it is kept on this device until you add or discard it.
+          </p>
+        )}
 
         {formOpen && (
           <div className="mb-3 grid gap-2 rounded-lg border border-neutral-700 bg-neutral-900/50 p-3 sm:grid-cols-2">
@@ -215,8 +245,11 @@ export default function EvidencePane({ item }: { item: CatalogItem }) {
               <Button variant="primary" onClick={submit} disabled={!form.title.trim()}>
                 {editingId ? 'Save changes' : 'Add record'}
               </Button>
-              <Button variant="ghost" onClick={() => setFormOpen(false)}>
-                Cancel
+              <Button variant="ghost" onClick={discard} title="Discards the unsaved draft (asks first)">
+                Discard draft
+              </Button>
+              <Button variant="ghost" onClick={() => setFormOpen(false)} title="Closes the form; the draft stays saved on this device">
+                Close (keep draft)
               </Button>
             </div>
           </div>

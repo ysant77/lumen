@@ -83,6 +83,22 @@ function SyncSection() {
         <input type="checkbox" checked={auto} onChange={(e) => setAuto(e.target.checked)} className="accent-amber-500" />
         Auto-push to your data repo after edits (~45 s) and on launch — off by default; manual Sync always works
       </label>
+      <p className="mt-2 rounded-md border border-neutral-800 bg-neutral-900/50 p-2 text-[11px] leading-relaxed text-neutral-400">
+        Multi-device fine print: progress/sessions/decks merge per record, but{' '}
+        <b className="text-neutral-300">card/experiment deletions can resurrect</b> after syncing
+        with a device that still has them, and{' '}
+        <b className="text-neutral-300">concurrent edits to the same note/code doc</b> keep the
+        local version and save the other side as a conflict copy below. Details in{' '}
+        <a
+          href="https://github.com/ysant77/lumen/blob/main/docs/LIMITATIONS.md"
+          target="_blank"
+          rel="noreferrer"
+          className="text-amber-400 underline"
+        >
+          docs/LIMITATIONS.md
+        </a>
+        .
+      </p>
       <div className="mt-3 flex flex-wrap items-center gap-2">
         <Button variant="primary" onClick={save}>Save</Button>
         <Button onClick={() => void test()} disabled={!owner || !repo || !token || testing}>

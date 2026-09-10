@@ -3,6 +3,21 @@
 Honest list, maintained alongside releases. "Tests pass" ≠ production-ready;
 this is a personal tool hardened for one user across a few devices.
 
+## Scope freeze (current)
+
+Feature development is **frozen**; only reliability/data-safety fixes land.
+Explicitly out of scope for now: quizzes, code challenges, additional
+discovery feeds, and any PageTrace integration.
+
+If a PageTrace (or similar) integration is ever added, it must be:
+
+- **optional** — lumen works fully without it;
+- **explicitly user-initiated** — no background calls, nothing on by default;
+- **upload-safe** — it must never silently upload PDFs or notes; any transfer
+  of content requires a per-action, clearly-labelled user step;
+- **non-blocking** — ordinary reading, notes, progress and review must never
+  depend on the availability of an external answering service.
+
 ## Sync & data
 
 - **Notes/code conflicts are preserved, not merged.** Diverged Markdown/code
@@ -21,6 +36,9 @@ this is a personal tool hardened for one user across a few devices.
 - **Clock skew caveat.** Record-level merge uses device wall clocks
   (`updatedAt`); a device with a badly wrong clock can win merges it
   shouldn't. Git history in the data repo remains the recovery path.
+- **Evidence drafts are device-local.** Unfinished experiment forms persist
+  per device (localStorage) and survive tab switches/navigation/reloads, but
+  they do **not** sync between devices until submitted as records.
 
 ## Reader
 

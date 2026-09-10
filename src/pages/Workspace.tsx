@@ -241,7 +241,7 @@ export default function Workspace() {
               )}
               {tab === 'code' && <CodePane item={item} />}
               {tab === 'cards' && <CardsPane item={item} />}
-              {tab === 'lab' && <EvidencePane item={item} />}
+              {tab === 'lab' && <EvidencePane key={item.id} item={item} />}
               {tab === 'info' && <InfoPane item={item} collection={collection} />}
             </div>
           </div>
