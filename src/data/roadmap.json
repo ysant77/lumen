@@ -1,8 +1,366 @@
 {
  "version": 1,
+ "generatedAt": "2026-09-10",
  "idAliases": {},
- "collections": {},
- "capstones": {},
- "missionRefs": [],
- "starterWindows": []
+ "collections": {
+  "llm": {
+   "phases": [
+    {
+     "name": "1. Foundations",
+     "purpose": "Transformer, pretraining, scaling, data, and decoder-only LLM progression."
+    },
+    {
+     "name": "2. Modern Block Anatomy",
+     "purpose": "RMSNorm, SwiGLU, RoPE, MQA/GQA: the internals of a modern LLM block."
+    },
+    {
+     "name": "3. Adaptation & Alignment",
+     "purpose": "Instruction tuning, PEFT, RLHF and preference optimization."
+    },
+    {
+     "name": "4. Training & Inference Systems",
+     "purpose": "Parallel training, kernels, serving, KV cache, decoding and quantization."
+    },
+    {
+     "name": "5. Retrieval, Agents & Reasoning",
+     "purpose": "RAG, tool use, verifiers, GRPO and test-time compute."
+    },
+    {
+     "name": "6. Sparse, Frontier & Alternative Architectures",
+     "purpose": "MoE, MLA, modern training systems, reasoning RL, SSMs and optimizers."
+    }
+   ],
+   "guidance": [
+    "Follow Suggested Order unless a project gives you a reason to jump.",
+    "Deep-read Core papers; skim model reports and optional comparisons.",
+    "For systems papers, reproduce the central memory/FLOP/communication idea.",
+    "Use Status + Notes on the Paper Roadmap sheet as a live tracker.",
+    "Direct PDF URL is the download link; Paper Page URL is useful for metadata/version history."
+   ]
+  },
+  "cv": {
+   "phases": [
+    {
+     "name": "1. Vision Foundations",
+     "purpose": "Acquire the modern CV vocabulary: CNNs, segmentation, detection and vision Transformers."
+    },
+    {
+     "name": "2. Self-Supervised & Foundation Vision",
+     "purpose": "Learn representation learning before EO-specific foundation models."
+    },
+    {
+     "name": "3. Matching, Registration & Motion",
+     "purpose": "Build the core toolkit for correspondence, local warps and sub-pixel registration."
+    },
+    {
+     "name": "4. EO Data & Multimodal Pretraining",
+     "purpose": "Move from generic vision to satellite-specific multimodal and multi-temporal representation learning."
+    },
+    {
+     "name": "5. SAR-Specific Learning",
+     "purpose": "Respect speckle, complex data, acquisition geometry and radar-specific inductive biases."
+    },
+    {
+     "name": "6. Temporal / Next-Scene Prediction",
+     "purpose": "Establish strong baselines for T-k → T+1 forecasting before inventing new models."
+    },
+    {
+     "name": "7. Physics-Aware ML",
+     "purpose": "Learn how to encode physical knowledge as constraints, architectures or hybrid models."
+    }
+   ],
+   "guidance": [
+    "Do not wait to finish all vision papers before touching SAR.",
+    "Read phases 1–2 selectively, then work phase 3 in parallel with your co-registration prototype.",
+    "Phases 4–5 are the highest-value research layer for cross-mission SAR/EO.",
+    "For next-scene prediction, keep a strict baseline ladder: persistence → ConvLSTM → SimVP → Transformer.",
+    "Physics-aware means more than PINNs: use acquisition metadata, geometry, complex signal structure, invariances and hybrid residual models.",
+    "This workbook intentionally does not repeat the 54 LLM/system papers."
+   ]
+  },
+  "reg": {
+   "phases": [
+    {
+     "name": "1. Domain Language & Data",
+     "purpose": "Learn what changes when text, labels, corpora and language are domain-specific."
+    },
+    {
+     "name": "2. Reasoning & Evaluation",
+     "purpose": "Evaluate legal competence instead of relying on generic benchmark scores."
+    },
+    {
+     "name": "3. Financial Language & Reasoning",
+     "purpose": "Learn numerical reasoning, filings and evidence-grounded finance QA."
+    },
+    {
+     "name": "4. Explainability, Confidence & Abstention",
+     "purpose": "Make confidence, uncertainty and escalation explicit."
+    },
+    {
+     "name": "5. Documentation, Fairness & Privacy",
+     "purpose": "Build evidence for transparency, fairness, data governance and privacy."
+    },
+    {
+     "name": "6. Governance & Operational Controls",
+     "purpose": "Translate model behavior into controls, accountability and regulated operations."
+    }
+   ],
+   "guidance": [
+    "1) Do phases 1–3 selectively by your target domain.",
+    "2) Do phases 4–6 regardless of domain: regulated AI is not just a better model.",
+    "3) For every Core item, produce an artifact: benchmark result, risk/control map, model card, or reproducible notebook.",
+    "4) The goal is evidence-backed deployment: provenance, calibration, abstention, privacy, fairness, human oversight and auditability.",
+    "5) This workbook intentionally does not repeat the 54 LLM/system papers."
+   ]
+  },
+  "lib": {
+   "phases": [
+    {
+     "name": "1. Math Refresh",
+     "purpose": "Fill only genuine math gaps; do not turn prerequisite study into an endless delay."
+    },
+    {
+     "name": "2. Deep Learning Core",
+     "purpose": "Build from-scratch understanding and modern DL intuition alongside DeepML."
+    },
+    {
+     "name": "3. Computer Vision",
+     "purpose": "Acquire the visual/geometry toolkit needed before deep SAR specialization."
+    },
+    {
+     "name": "4. GPU & AI Systems",
+     "purpose": "Develop the hardware-aware ML layer: profiling, memory, kernels, serving and production reliability."
+    },
+    {
+     "name": "5. SAR & Earth Observation",
+     "purpose": "Learn radar physics, mission/product semantics and EO-specific modeling."
+    },
+    {
+     "name": "6. Regulated / Trustworthy AI",
+     "purpose": "Add interpretability, legal reasoning and evaluation/governance thinking."
+    },
+    {
+     "name": "7. Practical Consolidation",
+     "purpose": "Use broad practical courses only to close gaps or accelerate implementation."
+    }
+   ],
+   "guidance": [
+    "Use at most 3 active learning resources at once:",
+    "1) one foundation stream (DeepML / math / DL),",
+    "2) one active-domain stream (SAR/CV or regulated AI),",
+    "3) one systems stream (GPU / production).",
+    "For every ~3–5 hours of reading/watching, spend ~3–5 hours implementing, deriving or benchmarking. Books marked Reference are not homework."
+   ]
+  }
+ },
+ "capstones": {
+  "cv": [
+   {
+    "#": "1",
+    "Capstone": "Cross-mission registration benchmark",
+    "Focus": "Co-registration",
+    "Data": "ALOS / NISAR / Sentinel-1",
+    "Baseline Ladder": "AROSICS + LoFTR/LightGlue + geometric QA",
+    "Success Evidence": "Median/95p residual pixels; tie-point inlier rate; failure categories by terrain/acquisition"
+   },
+   {
+    "#": "2",
+    "Capstone": "SAR-optical representation test",
+    "Focus": "Multimodal",
+    "Data": "Sentinel-1 + Sentinel-2",
+    "Baseline Ladder": "CROMA / SSL4EO / SEN12MS",
+    "Success Evidence": "Linear-probe accuracy; cross-modal retrieval; robustness to artificial misregistration"
+   },
+   {
+    "#": "3",
+    "Capstone": "Next-scene SAR baseline ladder",
+    "Focus": "Forecasting",
+    "Data": "Your temporal SAR windows",
+    "Baseline Ladder": "Persistence → ConvLSTM → SimVP → Earthformer",
+    "Success Evidence": "RMSE/MAE/SSIM; spectral statistics; change-region performance; uncertainty"
+   },
+   {
+    "#": "4",
+    "Capstone": "Acquisition-aware SAR model",
+    "Focus": "SAR physics/metadata",
+    "Data": "ALOS/NISAR/Sentinel metadata",
+    "Baseline Ladder": "ViT/SARFormer-style conditioning",
+    "Success Evidence": "Improvement over image-only baseline; ablation by metadata group"
+   },
+   {
+    "#": "5",
+    "Capstone": "Physics-aware residual model",
+    "Focus": "Physics-aware forecasting",
+    "Data": "Temporal SAR + geometry/known transformations",
+    "Baseline Ladder": "Constrained physics branch + learned residual branch",
+    "Success Evidence": "Constraint violation; predictive error; generalization across acquisition regimes"
+   },
+   {
+    "#": "6",
+    "Capstone": "Complex-data pilot",
+    "Focus": "Complex SAR",
+    "Data": "RSLC/complex products where available",
+    "Baseline Ladder": "Complex-valued baseline + intensity-only baseline",
+    "Success Evidence": "Downstream gain; phase sensitivity; compute/memory cost; interpretability"
+   }
+  ],
+  "reg": [
+   {
+    "#": "1",
+    "Capstone": "Legal evidence-grounded RAG",
+    "Domain": "Law",
+    "Build": "Build case/statute QA with citation-level provenance, abstention and retrieval/evidence scoring.",
+    "Suggested Inputs": "LegalBench + your own jurisdictional corpus",
+    "Success Evidence": "Evidence precision/recall; answer correctness; unsupported-claim rate; abstention quality"
+   },
+   {
+    "#": "2",
+    "Capstone": "Contract review copilot",
+    "Domain": "Law",
+    "Build": "Clause extraction + NLI + evidence highlighting with mandatory human approval.",
+    "Suggested Inputs": "CUAD + ContractNLI",
+    "Success Evidence": "Clause F1; evidence span F1; calibration; review time saved"
+   },
+   {
+    "#": "3",
+    "Capstone": "Auditable financial QA",
+    "Domain": "Banking/Finance",
+    "Build": "Financial report QA with retriever, executable numerical verifier and source citations.",
+    "Suggested Inputs": "FinQA + FinanceBench",
+    "Success Evidence": "Retrieval recall; execution accuracy; citation accuracy; hallucination rate"
+   },
+   {
+    "#": "4",
+    "Capstone": "Model-risk evidence pack",
+    "Domain": "Cross-regulated",
+    "Build": "Produce model card, dataset datasheet, calibration/fairness tests, privacy test and governance mapping.",
+    "Suggested Inputs": "Any tabular/text model",
+    "Success Evidence": "Evidence completeness; reproducibility; unresolved risks"
+   },
+   {
+    "#": "5",
+    "Capstone": "Bounded regulated agent",
+    "Domain": "Cross-regulated",
+    "Build": "Tool-using agent with least privilege, human checkpoints, audit logs, deterministic controls and rollback.",
+    "Suggested Inputs": "Synthetic legal/financial workflow",
+    "Success Evidence": "Unsafe action rate; approval bypass rate; audit completeness; recovery time"
+   }
+  ]
+ },
+ "missionRefs": [
+  {
+   "Mission": "NISAR",
+   "Reference": "Science Users' Handbook, 2nd edition",
+   "Type": "Mission/data reference",
+   "Why Keep It Nearby": "Primary guide to NISAR mission, instruments, algorithms and data products.",
+   "URL": "https://science.nasa.gov/mission/nisar/nisar-handbook/",
+   "Priority": "Core"
+  },
+  {
+   "Mission": "NISAR",
+   "Reference": "Product Specifications / Data User Guide",
+   "Type": "Product specification",
+   "Why Keep It Nearby": "L0/L1/L2 product definitions and structures; use before writing parsers or alignment assumptions.",
+   "URL": "https://nisar-docs.asf.alaska.edu/product-specification/",
+   "Priority": "Core"
+  },
+  {
+   "Mission": "NISAR",
+   "Reference": "Sample Data Product Suite",
+   "Type": "Sample data",
+   "Why Keep It Nearby": "Planned/available products with sample files and specifications; useful for parser tests.",
+   "URL": "https://science.nasa.gov/mission/nisar/sample-data/",
+   "Priority": "Core"
+  },
+  {
+   "Mission": "ALOS-2/PALSAR-2",
+   "Reference": "Product Format Description",
+   "Type": "Product specification",
+   "Why Keep It Nearby": "CEOS/GeoTIFF level definitions and file formats for PALSAR-2.",
+   "URL": "https://www.eorc.jaxa.jp/ALOS/en/alos-2/datause/a2_format_e.htm",
+   "Priority": "Core"
+  },
+  {
+   "Mission": "ALOS-2/PALSAR-2",
+   "Reference": "ScanSAR Level 2.2 CEOS-ARD products",
+   "Type": "Data/product reference",
+   "Why Keep It Nearby": "Analysis-ready normalized radar backscatter products and processing notes.",
+   "URL": "https://www.eorc.jaxa.jp/ALOS/en/dataset/palsar2_l22_e.htm",
+   "Priority": "Important"
+  },
+  {
+   "Mission": "Sentinel-1",
+   "Reference": "Copernicus / Sentinel-1 product documentation",
+   "Type": "Product reference",
+   "Why Keep It Nearby": "Keep product-level, geometry and metadata semantics explicit in any cross-mission pipeline.",
+   "URL": "https://sentiwiki.copernicus.eu/web/s1-documents",
+   "Priority": "Core"
+  },
+  {
+   "Mission": "NASA/ASF",
+   "Reference": "NISAR / SAR education resources",
+   "Type": "Training reference",
+   "Why Keep It Nearby": "Curated tutorials, SAR semester and practical learning resources.",
+   "URL": "https://science.nasa.gov/mission/nisar/sar-education-resources/",
+   "Priority": "Important"
+  }
+ ],
+ "starterWindows": [
+  {
+   "Window": "Weeks 1-2",
+   "Primary Resources": "DeepML + Mathematics for ML",
+   "Track": "Math / foundations",
+   "Focus": "Matrix decompositions, vector calculus, probability gaps only",
+   "Required Output": "Implement QR/SVD/gradient checks and keep derivation notes"
+  },
+  {
+   "Window": "Weeks 3-4",
+   "Primary Resources": "Understanding Deep Learning + Karpathy Zero-to-Hero",
+   "Track": "DL core",
+   "Focus": "Backprop, optimization, MLPs, attention foundations",
+   "Required Output": "Build micrograd / tiny MLP or Transformer components from scratch"
+  },
+  {
+   "Window": "Weeks 5-6",
+   "Primary Resources": "CS231n + Szeliski",
+   "Track": "Vision",
+   "Focus": "CNNs, feature matching, geometry, segmentation",
+   "Required Output": "Implement a vision baseline + classical/learned matching notebook"
+  },
+  {
+   "Window": "Weeks 7-8",
+   "Primary Resources": "NASA ARSET + SAR reference book",
+   "Track": "SAR",
+   "Focus": "SAR geometry, speckle, polarization, image interpretation",
+   "Required Output": "Annotate real scenes: layover, shadow, water/urban/vegetation signatures"
+  },
+  {
+   "Window": "Weeks 9-10",
+   "Primary Resources": "AROSICS / registration papers + mission docs",
+   "Track": "SAR pipeline",
+   "Focus": "Co-registration and product semantics",
+   "Required Output": "Build the first benchmarked ALOS/NISAR/S1 co-registration stage"
+  },
+  {
+   "Window": "Weeks 11-12",
+   "Primary Resources": "GPU MODE + PMPP",
+   "Track": "Systems",
+   "Focus": "Profiling, GPU memory, reductions, convolution",
+   "Required Output": "Profile one model; implement/benchmark at least one custom kernel or Triton/CUDA exercise"
+  },
+  {
+   "Window": "Weeks 13-14",
+   "Primary Resources": "SSL/EO foundation-model papers + EO book",
+   "Track": "EO ML",
+   "Focus": "Multimodal / self-supervised EO representations",
+   "Required Output": "Run one frozen-feature or fine-tuning experiment on SAR/optical data"
+  },
+  {
+   "Window": "Weeks 15-16",
+   "Primary Resources": "Regulated AI workbook + Interpretable ML",
+   "Track": "Trustworthy AI",
+   "Focus": "Calibration, abstention, documentation, evidence",
+   "Required Output": "Produce one model card + reliability diagram + failure taxonomy for a real prototype"
+  }
+ ]
 }

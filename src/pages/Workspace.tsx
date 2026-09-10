@@ -8,15 +8,17 @@ import NotesPane from '../components/NotesPane'
 import CodePane from '../components/CodePane'
 import CardsPane from '../components/CardsPane'
 import InfoPane from '../components/InfoPane'
+import EvidencePane from '../components/EvidencePane'
 import { Icon, StatusSelect, cn } from '../components/ui'
 
-type Tab = 'notes' | 'code' | 'cards' | 'info'
+type Tab = 'notes' | 'code' | 'cards' | 'lab' | 'info'
 type LayoutMode = 'split' | 'reader' | 'work'
 
 const TABS: Array<{ id: Tab; label: string; icon: string }> = [
   { id: 'notes', label: 'Notes', icon: 'note' },
   { id: 'code', label: 'Code', icon: 'code' },
   { id: 'cards', label: 'Cards', icon: 'cards' },
+  { id: 'lab', label: 'Evidence', icon: 'beaker' },
   { id: 'info', label: 'Info', icon: 'info' },
 ]
 
@@ -239,6 +241,7 @@ export default function Workspace() {
               )}
               {tab === 'code' && <CodePane item={item} />}
               {tab === 'cards' && <CardsPane item={item} />}
+              {tab === 'lab' && <EvidencePane item={item} />}
               {tab === 'info' && <InfoPane item={item} collection={collection} />}
             </div>
           </div>
