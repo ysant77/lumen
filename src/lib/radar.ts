@@ -81,6 +81,49 @@ export function mapWork(w: OpenAlexWork): RadarPaper {
   }
 }
 
+function normTitle(t: string): string {
+  return t
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim()
+}
+
+function mergeDuplicate(kept: RadarPaper, dupe: RadarPaper): RadarPaper {
+  const arxivId = kept.arxivId ?? dupe.arxivId
+  return {
+    ...kept,
+    date: kept.date >= dupe.date ? kept.date : dupe.date,
+    arxivId,
+    venue: kept.venue ?? dupe.venue,
+    abstract: kept.abstract ?? dupe.abstract,
+    doi: kept.doi ?? dupe.doi,
+    landingUrl: arxivId ? `https://arxiv.org/abs/${arxivId}` : (kept.landingUrl ?? dupe.landingUrl),
+    citedBy: Math.max(kept.citedBy, dupe.citedBy),
+  }
+}
+
+/**
+ * OpenAlex indexes the same paper as several works (arXiv preprint, published
+ * version, re-indexes) with different dates. Collapse them by normalized
+ * title (fallback: arXiv id / work id), keeping the newest entry enriched
+ * with the best fields from its duplicates.
+ */
+export function dedupePapers(papers: RadarPaper[]): RadarPaper[] {
+  const byKey = new Map<string, RadarPaper>()
+  const order: string[] = []
+  for (const p of papers) {
+    const key = normTitle(p.title) || (p.arxivId ? `arxiv:${p.arxivId}` : p.id)
+    const existing = byKey.get(key)
+    if (!existing) {
+      byKey.set(key, p)
+      order.push(key)
+    } else {
+      byKey.set(key, mergeDuplicate(existing, p))
+    }
+  }
+  return order.map((k) => byKey.get(k)!)
+}
+
 export async function searchTopic(topic: RadarTopic, perPage = 20): Promise<RadarPaper[]> {
   const from = new Date(Date.now() - topic.days * 864e5).toISOString().slice(0, 10)
   const url =
@@ -94,5 +137,6 @@ export async function searchTopic(topic: RadarTopic, perPage = 20): Promise<Rada
   const res = await fetch(url, { headers: { Accept: 'application/json' } })
   if (!res.ok) throw new Error(`OpenAlex ${res.status}`)
   const json = (await res.json()) as { results: OpenAlexWork[] }
-  return json.results.map(mapWork)
+  // results arrive date-desc, so the kept representative is the newest one
+  return dedupePapers(json.results.map(mapWork))
 }
