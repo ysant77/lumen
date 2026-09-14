@@ -90,6 +90,10 @@ export interface LearningSource {
   seenVideoIds?: string[]
   /** set once a COMPLETE (paginated) baseline exists; absent = never/partial */
   baselinedAt?: string | null
+  /** when YouTube-derived metadata (title/uploader) was actually fetched */
+  metaFetchedAt?: string | null
+  /** true when `title` came from YouTube (oEmbed) rather than the user */
+  titleFromYouTube?: boolean
 }
 
 // ---------- User data (synced to the private data repo) ----------

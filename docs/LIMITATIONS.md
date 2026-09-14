@@ -41,14 +41,19 @@ Third-party integrations must always be (and the YouTube watcher complies):
   made elsewhere.
 - **oEmbed titles are best-effort**; if YouTube declines the request the
   source keeps the title you typed (or the raw URL).
-- **YouTube-derived data that IS stored**: a source's title and uploader name
-  (fetched once via oEmbed when you add it) are saved on the source record
-  and sync with it; they are kept only as long as the source exists and are
-  deleted with it. Watcher (Data API) responses are displayed transiently and
-  not retained beyond the current check; acknowledged video IDs, the baseline
-  flag and check timestamps are persisted. This bookkeeping is separate from
-  user-created notes/decks/progress, which source operations never touch or
-  delete.
+- **YouTube-derived data that IS stored — with expiry**: a source's title
+  and uploader name (fetched via oEmbed) are saved on the source record and
+  sync with it, for at most 30 days per fetch. Freshness is measured from the
+  actual fetch (`metaFetchedAt`); acknowledging videos never extends it. On
+  expiry the YouTube-derived fields are purged locally (a YouTube-derived
+  title falls back to a neutral label such as "YouTube playlist <id>") and
+  re-fetching requires the per-source Refresh button — no automatic network
+  calls. User-entered titles and source notes are never expired. Watcher
+  (Data API) responses are displayed transiently and not retained beyond the
+  current check; acknowledged video IDs, the baseline flag and check
+  timestamps are persisted. This bookkeeping is separate from user-created
+  notes/decks/bookmarks/progress, which source operations never touch or
+  delete. Legacy (pre-1.3.3) records count their add time as the fetch time.
 - **University course sites are plain links.** lumen currently has no
   permitted browser-side adapter for discovering or checking updates on those
   sites, and does not pretend to; they stay links unless/until real permitted

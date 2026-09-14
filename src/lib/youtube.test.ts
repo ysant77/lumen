@@ -1,9 +1,13 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   ackVideos,
+  applyMarkSeen,
+  applyMetaRefresh,
   diffNewVideos,
   embedUrl,
+  expireSourceMeta,
   fetchAllPlaylistItems,
+  isMetaExpired,
   parseYouTubeUrl,
   planCheck,
   type PlaylistVideo,
@@ -144,6 +148,82 @@ describe('planCheck — baselines, empty playlists, migration', () => {
     const plan = planCheck({ seenVideoIds: ['v1'], baselinedAt: '2026-09-01' }, [vid('v1'), vid('v2')], true)
     expect(plan.action).toBe('diff')
     expect((plan as any).newVideos.map((v: PlaylistVideo) => v.videoId)).toEqual(['v2'])
+  })
+})
+
+describe('YouTube metadata retention (expiry from actual fetches)', () => {
+  const DAY = 864e5
+  const t0 = Date.parse('2026-09-01T00:00:00Z')
+  const base = {
+    id: 's1',
+    url: 'https://www.youtube.com/playlist?list=PLx',
+    type: 'youtube-playlist' as const,
+    playlistId: 'PLx',
+    videoId: null,
+    addedAt: '2026-09-01T00:00:00Z',
+  }
+
+  it('fresh metadata is kept; expiry triggers only after the TTL since the FETCH', () => {
+    const s = { ...base, title: 'CS231n Lectures', titleFromYouTube: true, provider: 'Stanford', metaFetchedAt: '2026-09-01T00:00:00Z' }
+    expect(isMetaExpired(s, t0 + 29 * DAY)).toBe(false)
+    expect(expireSourceMeta(s, t0 + 29 * DAY)).toBeNull()
+    expect(isMetaExpired(s, t0 + 31 * DAY)).toBe(true)
+  })
+
+  it('acknowledgements do not extend freshness (mark seen leaves lastChecked and metaFetchedAt alone)', () => {
+    const s = {
+      ...base,
+      title: 'CS231n',
+      provider: 'Stanford',
+      metaFetchedAt: '2026-09-01T00:00:00Z',
+      lastChecked: '2026-09-02T00:00:00Z',
+      baselinedAt: '2026-09-01T00:00:00Z',
+      seenVideoIds: ['v1'],
+    }
+    const after = applyMarkSeen(s, [vid('v2')], false, '2026-10-15T00:00:00Z')
+    expect(after.seenVideoIds!.sort()).toEqual(['v1', 'v2'])
+    expect(after.lastChecked).toBe('2026-09-02T00:00:00Z') // ack ≠ fetch
+    expect(after.metaFetchedAt).toBe('2026-09-01T00:00:00Z')
+    // and still expires based on the old fetch time
+    expect(isMetaExpired(after, Date.parse('2026-10-15T00:00:00Z'))).toBe(true)
+  })
+
+  it('expiry purges YouTube-derived fields but PRESERVES user-entered titles', () => {
+    const ytTitled = { ...base, title: 'Fetched Title', titleFromYouTube: true, provider: 'Chan', metaFetchedAt: '2026-09-01T00:00:00Z' }
+    const purged = expireSourceMeta(ytTitled, t0 + 40 * DAY)!
+    expect(purged.title).toBe('YouTube playlist PLx') // neutral fallback
+    expect(purged.provider).toBeNull()
+    expect(purged.titleFromYouTube).toBe(false)
+    expect(expireSourceMeta(purged, t0 + 80 * DAY)).toBeNull() // stable afterwards
+
+    const userTitled = { ...base, title: 'my label', titleFromYouTube: false, provider: 'Chan', metaFetchedAt: '2026-09-01T00:00:00Z', notes: 'my notes' }
+    const p2 = expireSourceMeta(userTitled, t0 + 40 * DAY)!
+    expect(p2.title).toBe('my label') // user label survives
+    expect(p2.notes).toBe('my notes') // user notes survive
+    expect(p2.provider).toBeNull() // only YouTube-derived data expires
+  })
+
+  it('legacy records (no metaFetchedAt) expire from their add time; sites never expire', () => {
+    const legacy = { ...base, title: 'Old', provider: 'Chan' } // pre-1.3.3 shape
+    expect(isMetaExpired(legacy, t0 + 10 * DAY)).toBe(false)
+    expect(isMetaExpired(legacy, t0 + 31 * DAY)).toBe(true)
+    const site = { ...base, type: 'site' as const, playlistId: null, title: 'OCW', provider: 'MIT' }
+    expect(isMetaExpired(site, t0 + 400 * DAY)).toBe(false)
+    const noMeta = { ...base, title: 'typed by user', provider: null }
+    expect(isMetaExpired(noMeta, t0 + 400 * DAY)).toBe(false) // nothing stored to expire
+  })
+
+  it('user-initiated refresh replaces YouTube-derived/neutral titles but not user labels', () => {
+    const info = { title: 'New Fetched Title', author: 'New Chan' }
+    const purged = { ...base, title: 'YouTube playlist PLx', titleFromYouTube: false, provider: null, metaFetchedAt: null }
+    const refreshed = applyMetaRefresh(purged, info, '2026-10-11T00:00:00Z')
+    expect(refreshed.title).toBe('New Fetched Title')
+    expect(refreshed.provider).toBe('New Chan')
+    expect(refreshed.metaFetchedAt).toBe('2026-10-11T00:00:00Z')
+    expect(isMetaExpired(refreshed, Date.parse('2026-10-20T00:00:00Z'))).toBe(false)
+
+    const userTitled = { ...base, title: 'my label', titleFromYouTube: false, provider: null, metaFetchedAt: null }
+    expect(applyMetaRefresh(userTitled, info, '2026-10-11T00:00:00Z').title).toBe('my label')
   })
 })
 

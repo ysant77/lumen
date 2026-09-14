@@ -186,3 +186,85 @@ export function embedUrl(source: { playlistId?: string | null; videoId?: string 
   if (source.playlistId) return `https://www.youtube-nocookie.com/embed/videoseries?list=${source.playlistId}`
   return null
 }
+
+// ---------------------------------------------------------------------------
+// Retention of YouTube-derived metadata (title/uploader fetched via oEmbed)
+//
+// Stored provider metadata expires META_TTL_DAYS after the fetch that
+// produced it (metaFetchedAt — never an acknowledgement timestamp). Expired
+// fields are purged from the record; the user can re-fetch with an explicit
+// Refresh action. User-entered titles and notes are never expired.
+// ---------------------------------------------------------------------------
+
+export const META_TTL_DAYS = 30
+
+type MetaSource = Pick<
+  LearningSource,
+  'type' | 'title' | 'provider' | 'titleFromYouTube' | 'metaFetchedAt' | 'addedAt' | 'playlistId' | 'videoId' | 'url'
+>
+
+/** Neutral label that carries no YouTube-derived text. */
+export function fallbackLabel(s: Pick<MetaSource, 'playlistId' | 'videoId' | 'url'>): string {
+  if (s.playlistId) return `YouTube playlist ${s.playlistId}`
+  if (s.videoId) return `YouTube video ${s.videoId}`
+  return s.url
+}
+
+export function isMetaExpired(s: MetaSource, nowMs = Date.now()): boolean {
+  if (s.type === 'site') return false
+  if (!s.provider && !s.titleFromYouTube) return false // nothing YouTube-derived is stored
+  // legacy records (pre-retention) carry no metaFetchedAt: their add time is
+  // the last moment the data could have been fetched
+  const fetchedAt = s.metaFetchedAt ?? s.addedAt
+  if (!fetchedAt) return true
+  return nowMs - Date.parse(fetchedAt) > META_TTL_DAYS * 864e5
+}
+
+/**
+ * Purge expired YouTube-derived fields. Returns the updated record, or null
+ * when nothing changed. User-entered titles are preserved; a YouTube-derived
+ * title falls back to a neutral label until the user refreshes.
+ */
+export function expireSourceMeta(s: LearningSource, nowMs = Date.now()): LearningSource | null {
+  if (!isMetaExpired(s, nowMs)) return null
+  const out: LearningSource = { ...s, provider: null, metaFetchedAt: null }
+  if (s.titleFromYouTube) {
+    out.title = fallbackLabel(s)
+    out.titleFromYouTube = false
+  }
+  return out
+}
+
+/**
+ * Apply a user-initiated metadata refresh. The user's own label is kept;
+ * only a YouTube-derived (or previously purged/neutral) title is replaced.
+ */
+export function applyMetaRefresh(s: LearningSource, info: OEmbedInfo, now: string): LearningSource {
+  const neutral = s.title === fallbackLabel(s) || !s.title.trim()
+  const takeTitle = s.titleFromYouTube || neutral
+  return {
+    ...s,
+    title: takeTitle ? info.title : s.title,
+    titleFromYouTube: takeTitle ? true : s.titleFromYouTube,
+    provider: info.author || null,
+    metaFetchedAt: now,
+  }
+}
+
+/**
+ * Acknowledge the checked snapshot. Deliberately does NOT touch lastChecked:
+ * acknowledgements are not fetches, and freshness must come from fetches.
+ * An incomplete snapshot never establishes a complete baseline.
+ */
+export function applyMarkSeen(
+  s: LearningSource,
+  snapshot: PlaylistVideo[],
+  snapshotIncomplete: boolean,
+  now: string,
+): LearningSource {
+  return {
+    ...s,
+    seenVideoIds: ackVideos(s.seenVideoIds, snapshot),
+    baselinedAt: s.baselinedAt ?? (snapshotIncomplete ? null : now),
+  }
+}

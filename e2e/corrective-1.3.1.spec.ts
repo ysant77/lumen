@@ -121,6 +121,32 @@ test.describe('watcher (multi-page playlists, baselines, failures, snapshot acks
     await expect(page.getByText('not baselined yet')).toBeHidden()
   })
 
+  test('metadata refresh is user-initiated and updates title/uploader from YouTube', async ({ page }) => {
+    let oembedTitle = 'Original Title'
+    let oembedCalls = 0
+    await page.route('**/www.youtube.com/oembed*', (route) => {
+      oembedCalls++
+      return route.fulfill({ json: { title: oembedTitle, author_name: `Chan for ${oembedTitle}` } })
+    })
+    await page.goto('#/sources')
+    await page.getByLabel(/URL \(YouTube/).fill('https://www.youtube.com/playlist?list=PLMETA1')
+    await page.getByRole('button', { name: 'Add', exact: true }).click()
+    await expect(page.getByRole('link', { name: 'Original Title', exact: true })).toBeVisible()
+    const callsAfterAdd = oembedCalls
+
+    // provider changes upstream; lumen must NOT refetch on its own
+    oembedTitle = 'Updated Title'
+    await page.waitForTimeout(500)
+    expect(oembedCalls).toBe(callsAfterAdd)
+    await expect(page.getByRole('link', { name: 'Original Title', exact: true })).toBeVisible()
+
+    // explicit user refresh re-fetches and updates the stored metadata
+    await page.getByRole('button', { name: /Refresh metadata for Original Title/ }).click()
+    await expect(page.getByRole('link', { name: 'Updated Title', exact: true })).toBeVisible()
+    await expect(page.getByText('Chan for Updated Title')).toBeVisible()
+    await expect(page.getByText(/Metadata refreshed from YouTube/)).toBeVisible()
+  })
+
   test('saving and clearing the API key updates controls and status immediately', async ({ page }) => {
     await page.goto('#/sources')
     const status = page.getByTestId('key-status')

@@ -1,12 +1,16 @@
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { LearningSource } from '../types'
 import { useData } from '../store/data'
 import { isHttpUrl } from '../lib/lookup'
 import {
-  ackVideos,
+  META_TTL_DAYS,
+  applyMarkSeen,
+  applyMetaRefresh,
   embedUrl,
+  expireSourceMeta,
   fetchAllPlaylistItems,
   getYouTubeKey,
+  isMetaExpired,
   oembedLookup,
   parseYouTubeUrl,
   planCheck,
@@ -38,6 +42,7 @@ function SourceCard({
   onCheck,
   onMarkSeen,
   onRemove,
+  onRefreshMeta,
 }: {
   source: LearningSource
   check: CheckState
@@ -45,10 +50,12 @@ function SourceCard({
   onCheck: () => void
   onMarkSeen: () => void
   onRemove: () => void
+  onRefreshMeta?: () => void
 }) {
   const [embedOpen, setEmbedOpen] = useState(false)
   const embed = embedUrl(source)
   const watchable = !!source.playlistId
+  const metaExpired = isMetaExpired(source)
 
   return (
     <li className="rounded-lg border border-neutral-800 p-3">
@@ -71,6 +78,7 @@ function SourceCard({
             <Chip>{source.type.replace('youtube-', 'yt ')}</Chip>
             {source.lastChecked && <span>checked {new Date(source.lastChecked).toLocaleDateString()}</span>}
             {watchable && !source.baselinedAt && <Chip>not baselined yet</Chip>}
+            {metaExpired && <Chip className="border-orange-800 text-orange-300">metadata expired</Chip>}
           </p>
           {source.notes && <p className="mt-1 text-[11px] text-neutral-400">{source.notes}</p>}
         </div>
@@ -83,6 +91,11 @@ function SourceCard({
           {watchable && (
             <Button variant="ghost" className="px-2" onClick={onCheck} disabled={!hasKey || check.checking} title={hasKey ? 'Check for new lectures (YouTube Data API)' : 'Add your YouTube API key below to enable checking'} aria-label={`Check ${source.title} for new videos`}>
               {check.checking ? <Spinner className="h-3.5 w-3.5" /> : <Icon name="sync" className="h-3.5 w-3.5" />}
+            </Button>
+          )}
+          {onRefreshMeta && source.type !== 'site' && (
+            <Button variant="ghost" className="px-2" onClick={onRefreshMeta} title={`Re-fetch title/uploader from YouTube (stored ${META_TTL_DAYS} days per fetch)`} aria-label={`Refresh metadata for ${source.title}`}>
+              <Icon name="download" className="h-3.5 w-3.5" />
             </Button>
           )}
           <Button variant="ghost" className="px-2" onClick={onRemove} title="Remove source" aria-label={`Remove ${source.title}`}>
@@ -195,13 +208,16 @@ export default function Sources() {
     setAdding(true)
     try {
       const yt = parseYouTubeUrl(trimmed)
-      let resolvedTitle = title.trim()
+      const userTitle = title.trim()
+      let resolvedTitle = userTitle
       let provider: string | null = null
+      let fetchedMeta = false
       if (yt && !resolvedTitle) {
         const info = await oembedLookup(trimmed)
         if (info) {
           resolvedTitle = info.title
           provider = info.author || null
+          fetchedMeta = true
         }
       }
       if (!resolvedTitle) resolvedTitle = yt ? trimmed : new URL(trimmed).hostname
@@ -214,6 +230,8 @@ export default function Sources() {
         playlistId: yt?.playlistId ?? null,
         videoId: yt?.videoId ?? null,
         addedAt: new Date().toISOString(),
+        metaFetchedAt: fetchedMeta ? new Date().toISOString() : null,
+        titleFromYouTube: fetchedMeta && !userTitle,
       })
       setUrl('')
       setTitle('')
@@ -279,16 +297,32 @@ export default function Sources() {
     if (!snapshot) return // nothing checked yet; never ack from a blind fetch
     const latest = useData.getState().sources.find((x) => x.id === s.id)
     if (!latest) return
-    const now = new Date().toISOString()
-    updateSource({
-      ...latest,
-      seenVideoIds: ackVideos(latest.seenVideoIds, snapshot),
-      // an incomplete snapshot may acknowledge what was seen, but must never
-      // establish a complete baseline it cannot vouch for
-      baselinedAt: latest.baselinedAt ?? (state.incomplete ? null : now),
-      lastChecked: now,
-    })
+    // acknowledgements are not fetches: lastChecked is deliberately untouched
+    updateSource(applyMarkSeen(latest, snapshot, !!state.incomplete, new Date().toISOString()))
     setChecks((c) => ({ ...c, [s.id]: { ...c[s.id], newVideos: [], note: undefined } }))
+  }
+
+  // retention: purge YouTube-derived metadata whose fetch is older than the
+  // TTL (local write only — re-fetching stays a user-initiated action)
+  useEffect(() => {
+    const nowMs = Date.now()
+    for (const src of useData.getState().sources) {
+      const purged = expireSourceMeta(src, nowMs)
+      if (purged) updateSource(purged)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  const refreshMeta = async (s: LearningSource) => {
+    const info = await oembedLookup(s.url)
+    const latest = useData.getState().sources.find((x) => x.id === s.id)
+    if (!latest) return
+    if (!info) {
+      setChecks((c) => ({ ...c, [s.id]: { ...c[s.id], note: 'Metadata refresh failed — YouTube did not answer the oEmbed request.' } }))
+      return
+    }
+    updateSource(applyMetaRefresh(latest, info, new Date().toISOString()))
+    setChecks((c) => ({ ...c, [s.id]: { ...c[s.id], note: 'Metadata refreshed from YouTube.' } }))
   }
 
   const checkAll = async () => {
@@ -400,6 +434,7 @@ export default function Sources() {
                 onRemove={() => {
                   if (confirm(`Remove "${s.title}" from your sources?`)) removeSource(s.id)
                 }}
+                onRefreshMeta={() => void refreshMeta(s)}
               />
             ))}
           </ul>
@@ -499,14 +534,18 @@ export default function Sources() {
             Privacy Policy
           </a>{' '}
           applies. What lumen stores from YouTube: when you add a YouTube source, its{' '}
-          <b className="text-neutral-400">title and uploader name</b> (fetched once via oEmbed) are
-          saved on that source record and sync with it — this YouTube-derived metadata is kept only
-          as long as the source exists and goes away when you remove it. Watcher (Data API)
-          responses are displayed transiently and not retained beyond the check you are looking at;
-          lumen additionally persists the video IDs you explicitly mark seen, a baseline flag and
-          check timestamps. All of that is source bookkeeping — your notes, decks and reading
+          <b className="text-neutral-400">title and uploader name</b> (fetched via oEmbed) are
+          saved on that source record and sync with it — for at most {META_TTL_DAYS} days per
+          fetch. Freshness is tracked from the actual fetch time; acknowledging videos does not
+          extend it. After {META_TTL_DAYS} days lumen deletes the YouTube-derived fields from the
+          record (a YouTube-derived title falls back to a neutral label) and you can re-fetch them
+          with the per-source Refresh button — never automatically. Titles you typed yourself and
+          your own notes are yours and are never expired. Watcher (Data API) responses are
+          displayed transiently and not retained beyond the check you are looking at; lumen
+          additionally persists the video IDs you explicitly mark seen, a baseline flag and check
+          timestamps. All of that is source bookkeeping — your notes, decks, bookmarks and reading
           progress are separate user-created data and are never touched or deleted by source
-          operations. All network checks are user-initiated; nothing polls in the background.
+          operations. All network requests are user-initiated; nothing polls in the background.
         </p>
       </section>
     </div>
