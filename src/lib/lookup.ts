@@ -1,5 +1,76 @@
-import type { RadarPaper } from '../types'
-import { mapWork } from './radar'
+import type { CustomItem, RadarPaper } from '../types'
+import { arxivPdfUrl, mapWork } from './radar'
+
+/** strict http(s) URL check for user-entered links (Sources + manual Inbox) */
+export function isHttpUrl(s: string): boolean {
+  try {
+    const u = new URL(s.trim())
+    return u.protocol === 'http:' || u.protocol === 'https:'
+  } catch {
+    return false
+  }
+}
+
+/** Unicode-aware normalization for duplicate detection (editions stay distinct via explicit confirm). */
+export function normalizeTitle(t: string): string {
+  return t
+    .normalize('NFKC')
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, ' ')
+    .trim()
+}
+
+export function findDuplicateByTitle<T extends { title: string }>(items: T[], title: string): T | undefined {
+  const n = normalizeTitle(title)
+  if (!n) return undefined
+  return items.find((i) => normalizeTitle(i.title) === n)
+}
+
+export interface ManualFields {
+  title: string
+  url: string
+  year: string
+  authors: string
+}
+
+/**
+ * Build a manual Inbox item with a collision-safe id (UUID-based, never
+ * derived from the title — non-Latin titles and same-titled editions are
+ * first-class). arXiv links still get first-class PDF handling.
+ */
+export function buildManualItem(
+  fields: ManualFields,
+  order: number,
+): { item: CustomItem; error?: never } | { item?: never; error: string } {
+  const title = fields.title.trim()
+  if (!title) return { error: 'Title is required.' }
+  const url = fields.url.trim()
+  if (url && !isHttpUrl(url)) return { error: 'Link must be a valid http(s) URL.' }
+  const arxiv = /arxiv\.org\/(?:abs|pdf)\/(\d{4}\.\d{4,5})/.exec(url)
+  const id = arxiv ? `x-${arxiv[1]}` : `x-m-${crypto.randomUUID()}`
+  const now = new Date().toISOString()
+  return {
+    item: {
+      id,
+      order,
+      phase: 'Inbox',
+      shortName: title.split(/[:：]/)[0].trim().slice(0, 40) || title.slice(0, 40),
+      title,
+      year: fields.year.trim() || '',
+      authors: fields.authors.trim() || null,
+      priority: null,
+      difficulty: null,
+      why: null,
+      exercise: null,
+      pageUrl: url || null,
+      pdfUrl: arxiv ? arxivPdfUrl(arxiv[1]) : null,
+      pdfFile: arxiv ? `arxiv-${arxiv[1]}.pdf` : null,
+      pdfDir: null,
+      addedAt: now,
+      source: 'manual',
+    },
+  }
+}
 
 /**
  * Resolve a user-entered reference (arXiv id/URL or DOI) to paper metadata

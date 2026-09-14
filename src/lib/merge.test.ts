@@ -98,6 +98,26 @@ describe('mergeDocs — record-level sync merge', () => {
     expect(merged.deleted['s1']).toBeTruthy()
   })
 
+  it('REGRESSION: watcher acknowledgements survive cross-device merges', () => {
+    const base = { id: 's1', title: 'CS231n', url: 'https://x', addedAt: '2026-09-01T00:00:00Z' }
+    // device A acknowledged v1..v3 earlier; device B renamed the source LATER
+    const localA = { ...base, seenVideoIds: ['v1', 'v2', 'v3'], baselinedAt: '2026-09-02T00:00:00Z', lastChecked: '2026-09-03T00:00:00Z', updatedAt: '2026-09-03T00:00:00Z' }
+    const remoteB = { ...base, title: 'CS231n (renamed)', seenVideoIds: ['v1'], updatedAt: '2026-09-04T00:00:00Z' }
+    const res = mergeDocs(
+      'sources.json',
+      j({ version: 1, items: [localA], deleted: {} }),
+      j({ version: 1, items: [remoteB], deleted: { dead: '2026-01-01T00:00:00Z' } }),
+    )
+    expect(res.kind).toBe('merged')
+    const merged = JSON.parse((res as any).content)
+    const item = merged.items[0]
+    expect(item.title).toBe('CS231n (renamed)') // newer edit wins the record
+    expect(item.seenVideoIds.sort()).toEqual(['v1', 'v2', 'v3']) // acks are NOT lost
+    expect(item.baselinedAt).toBe('2026-09-02T00:00:00Z') // baseline retained
+    expect(item.lastChecked).toBe('2026-09-03T00:00:00Z')
+    expect(merged.deleted['dead']).toBeTruthy() // tombstones retained
+  })
+
   it('takes remote when contents are identical', () => {
     expect(mergeDocs('progress.json', j({ items: {} }), j({ items: {} })).kind).toBe('takeRemote')
   })

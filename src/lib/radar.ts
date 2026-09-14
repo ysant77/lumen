@@ -124,19 +124,28 @@ export function dedupePapers(papers: RadarPaper[]): RadarPaper[] {
   return order.map((k) => byKey.get(k)!)
 }
 
-export async function searchTopic(topic: RadarTopic, perPage = 20): Promise<RadarPaper[]> {
-  const from = new Date(Date.now() - topic.days * 864e5).toISOString().slice(0, 10)
-  const url =
-    'https://api.openalex.org/works?' +
-    new URLSearchParams({
-      search: topic.query,
-      filter: `from_publication_date:${from}`,
-      sort: 'publication_date:desc',
-      'per-page': String(perPage),
-    })
-  const res = await fetch(url, { headers: { Accept: 'application/json' } })
+export type SearchMode = 'recent' | 'alltime'
+
+export function buildSearchUrl(topic: RadarTopic, mode: SearchMode, perPage = 20): string {
+  const params = new URLSearchParams({ search: topic.query, 'per-page': String(perPage) })
+  if (mode === 'recent') {
+    const from = new Date(Date.now() - topic.days * 864e5).toISOString().slice(0, 10)
+    params.set('filter', `from_publication_date:${from}`)
+    params.set('sort', 'publication_date:desc')
+  } else {
+    // all-time research: relevance ranking, no date window
+    params.set('sort', 'relevance_score:desc')
+  }
+  return `https://api.openalex.org/works?${params}`
+}
+
+export async function searchTopic(
+  topic: RadarTopic,
+  mode: SearchMode = 'recent',
+  perPage = 20,
+): Promise<RadarPaper[]> {
+  const res = await fetch(buildSearchUrl(topic, mode, perPage), { headers: { Accept: 'application/json' } })
   if (!res.ok) throw new Error(`OpenAlex ${res.status}`)
   const json = (await res.json()) as { results: OpenAlexWork[] }
-  // results arrive date-desc, so the kept representative is the newest one
   return dedupePapers(json.results.map(mapWork))
 }

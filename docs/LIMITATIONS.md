@@ -20,16 +20,31 @@ Third-party integrations must always be (and the YouTube watcher complies):
 
 ## Sources & watcher
 
-- **YouTube API key is device-local** (localStorage, never synced) and only
-  needed for "check for new lectures" — links and embeds work without it.
-  Create it restricted to the YouTube Data API and your app URL.
+- **YouTube API key is device-local** (localStorage; never synced, exported
+  or logged) and only needed for "check for new lectures" — links and embeds
+  work without it. A key used from a browser is visible to anyone who can use
+  this device/profile: restricting it (YouTube Data API only + your app URL)
+  reduces misuse, it does not make the key secret.
+- **Checks paginate the full playlist** (new lectures are appended at the
+  end) within a bounded request budget (~400 videos); larger playlists are
+  flagged as an *incomplete check* rather than silently truncated.
+- **Baselines are explicit.** The first check acknowledges the entire current
+  playlist (an empty playlist baselines to empty, so its first upload is
+  reported). Pre-1.3.1 partial baselines are upgraded once, silently.
+- **"Mark seen" acknowledges exactly the checked snapshot** — never a fresh
+  fetch — and acknowledgements are never evicted, so acknowledged videos are
+  not re-reported. Acks survive cross-device merges (union), including edits
+  made elsewhere.
 - **oEmbed titles are best-effort**; if YouTube declines the request the
   source keeps the title you typed (or the raw URL).
-- **First "check" baselines silently**: existing videos count as seen; only
-  later uploads are reported as new. Seen-lists cap at 100 video ids.
-- **No university-site scraping.** Course *websites* are plain links (CORS
-  and ToS make client-side watchers infeasible); lecture watching works via
-  official YouTube playlists instead.
+- **API data handling**: watcher responses are displayed transiently and not
+  retained; only acknowledged video IDs, the baseline flag and timestamps are
+  stored on the source record. This bookkeeping is separate from user-created
+  notes/decks/progress, which source operations never touch or delete.
+- **University course sites are plain links.** lumen currently has no
+  permitted browser-side adapter for discovering or checking updates on those
+  sites, and does not pretend to; they stay links unless/until real permitted
+  adapters exist. deep-ml remains link-only (lowest priority).
 
 ## Sync & data
 

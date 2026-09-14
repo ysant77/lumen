@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import 'fake-indexeddb/auto'
-import { strToU8, zipSync } from 'fflate'
+import { strFromU8, strToU8, unzipSync, zipSync } from 'fflate'
 import { useData } from './data'
 import { getAllDocs, clearAllDocs, getDoc } from '../lib/db'
 import { validateBackup } from '../lib/backup'
@@ -75,6 +75,70 @@ describe('store persistence + restore (disposable fake IndexedDB)', () => {
     const bad = validateBackup(zipOf({ 'progress.json': '{nope' }))
     expect(bad.ok).toBe(false)
     await expect(useData.getState().restoreBackup(bad, 'merge')).rejects.toThrow(/validation/)
+  })
+
+  it('REGRESSION: addCustomItem reports duplicates instead of silently no-oping', async () => {
+    const item = {
+      id: 'x-1706.03762',
+      order: 1,
+      phase: 'Inbox',
+      shortName: 'T',
+      title: 't',
+      year: 2017,
+      pdfFile: null,
+      addedAt: new Date().toISOString(),
+      source: 'manual' as const,
+    }
+    expect(useData.getState().addCustomItem(item)).toBe(true)
+    expect(useData.getState().addCustomItem(item)).toBe(false) // caller must surface this
+    expect(useData.getState().customItems).toHaveLength(1)
+  })
+
+  it('updateCustomItem stamps updatedAt (attach-PDF path)', async () => {
+    const item = {
+      id: 'x-m-abc',
+      order: 1,
+      phase: 'Inbox',
+      shortName: 'Book',
+      title: 'Book',
+      year: '',
+      pdfFile: null,
+      addedAt: '2026-01-01T00:00:00Z',
+      updatedAt: '2026-01-01T00:00:00Z',
+      source: 'manual' as const,
+    }
+    useData.getState().addCustomItem(item)
+    useData.getState().updateCustomItem({ ...item, pdfFile: 'x-m-abc.pdf' })
+    const updated = useData.getState().customItems[0]
+    expect(updated.pdfFile).toBe('x-m-abc.pdf')
+    expect(updated.updatedAt! > '2026-01-01T00:00:00Z').toBe(true)
+  })
+
+  it('exports never contain the YouTube API key (scanned file-by-file)', async () => {
+    localStorage.setItem('lumen.youtube.apiKey', 'AIzaSECRETKEY123')
+    useData.getState().saveNote('llm-01', '# a note')
+    useData.getState().addSource({
+      id: 'src-1',
+      title: 'CS231n',
+      url: 'https://www.youtube.com/playlist?list=PLx',
+      type: 'youtube-playlist',
+      playlistId: 'PLx',
+      addedAt: new Date().toISOString(),
+    })
+    await new Promise((r) => setTimeout(r, 20))
+    const blob = useData.getState().exportAll()
+    const bytes = await new Promise<Uint8Array>((resolve, reject) => {
+      const r = new FileReader()
+      r.onload = () => resolve(new Uint8Array(r.result as ArrayBuffer))
+      r.onerror = () => reject(r.error)
+      r.readAsArrayBuffer(blob)
+    })
+    const files = unzipSync(bytes)
+    expect(Object.keys(files)).toContain('sources.json')
+    for (const [path, content] of Object.entries(files)) {
+      expect(strFromU8(content), path).not.toContain('AIzaSECRETKEY123')
+    }
+    localStorage.removeItem('lumen.youtube.apiKey')
   })
 
   it('custom-item removal leaves a tombstone so deletions survive sync', async () => {

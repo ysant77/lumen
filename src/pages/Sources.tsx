@@ -1,14 +1,15 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import type { LearningSource } from '../types'
 import { useData } from '../store/data'
+import { isHttpUrl } from '../lib/lookup'
 import {
-  diffNewVideos,
+  ackVideos,
   embedUrl,
-  fetchPlaylistItems,
+  fetchAllPlaylistItems,
   getYouTubeKey,
-  mergeSeen,
   oembedLookup,
   parseYouTubeUrl,
+  planCheck,
   setYouTubeKey,
   type PlaylistVideo,
 } from '../lib/youtube'
@@ -21,19 +22,26 @@ const SEEDS = seedsRaw as Array<
 
 interface CheckState {
   checking?: boolean
-  error?: string
+  error?: string | null
+  /** pending results survive later failures until acknowledged */
   newVideos?: PlaylistVideo[]
+  /** the exact snapshot the user saw; "mark seen" acknowledges THIS, never a fresh fetch */
+  snapshot?: PlaylistVideo[]
+  incomplete?: boolean
+  note?: string
 }
 
 function SourceCard({
   source,
   check,
+  hasKey,
   onCheck,
   onMarkSeen,
   onRemove,
 }: {
   source: LearningSource
   check: CheckState
+  hasKey: boolean
   onCheck: () => void
   onMarkSeen: () => void
   onRemove: () => void
@@ -41,7 +49,6 @@ function SourceCard({
   const [embedOpen, setEmbedOpen] = useState(false)
   const embed = embedUrl(source)
   const watchable = !!source.playlistId
-  const hasKey = !!getYouTubeKey()
 
   return (
     <li className="rounded-lg border border-neutral-800 p-3">
@@ -63,6 +70,7 @@ function SourceCard({
             {source.provider && <span>{source.provider}</span>}
             <Chip>{source.type.replace('youtube-', 'yt ')}</Chip>
             {source.lastChecked && <span>checked {new Date(source.lastChecked).toLocaleDateString()}</span>}
+            {watchable && !source.baselinedAt && <Chip>not baselined yet</Chip>}
           </p>
           {source.notes && <p className="mt-1 text-[11px] text-neutral-400">{source.notes}</p>}
         </div>
@@ -73,7 +81,7 @@ function SourceCard({
             </Button>
           )}
           {watchable && (
-            <Button variant="ghost" className="px-2" onClick={onCheck} disabled={!hasKey || check.checking} title={hasKey ? 'Check for new lectures (official YouTube API)' : 'Add your YouTube API key below to enable checking'}>
+            <Button variant="ghost" className="px-2" onClick={onCheck} disabled={!hasKey || check.checking} title={hasKey ? 'Check for new lectures (YouTube Data API)' : 'Add your YouTube API key below to enable checking'} aria-label={`Check ${source.title} for new videos`}>
               {check.checking ? <Spinner className="h-3.5 w-3.5" /> : <Icon name="sync" className="h-3.5 w-3.5" />}
             </Button>
           )}
@@ -83,11 +91,23 @@ function SourceCard({
         </div>
       </div>
 
-      {check.error && <p className="mt-2 text-[11px] text-red-400">check failed: {check.error}</p>}
+      {check.error && (
+        <p className="mt-2 text-[11px] text-red-400">
+          check failed: {check.error}
+          {check.newVideos && check.newVideos.length > 0 && ' — earlier results below are kept'}
+        </p>
+      )}
+      {check.note && <p className="mt-2 text-[11px] text-neutral-400">{check.note}</p>}
+      {check.incomplete && (
+        <p className="mt-2 text-[11px] text-orange-300">
+          Incomplete check: the playlist is larger than one check's request budget, so results may
+          miss entries. "Mark seen" only acknowledges what was actually fetched.
+        </p>
+      )}
       {check.newVideos && (
         <div className="mt-2 rounded-md border border-neutral-800 bg-neutral-900/50 p-2">
           {check.newVideos.length === 0 ? (
-            <p className="text-[11px] text-neutral-400">Nothing new since your last mark-seen.</p>
+            <p className="text-[11px] text-neutral-400">Nothing new since your last acknowledgement.</p>
           ) : (
             <>
               <p className="mb-1 text-[11px] font-medium text-amber-300">
@@ -107,6 +127,9 @@ function SourceCard({
                     </a>
                   </li>
                 ))}
+                {check.newVideos.length > 8 && (
+                  <li className="text-[11px] text-neutral-500">…and {check.newVideos.length - 8} more</li>
+                )}
               </ul>
               <Button variant="ghost" className="mt-1.5 px-2 py-0.5" onClick={onMarkSeen}>
                 <Icon name="check" className="h-3 w-3" /> mark seen
@@ -141,9 +164,15 @@ export default function Sources() {
   const [title, setTitle] = useState('')
   const [adding, setAdding] = useState(false)
   const [addError, setAddError] = useState<string | null>(null)
-  const [apiKey, setApiKey] = useState(getYouTubeKey())
+
+  // key controls: single state source so saving/clearing updates everything at once
+  const [savedKey, setSavedKey] = useState(getYouTubeKey())
+  const [keyInput, setKeyInput] = useState(savedKey)
+  const hasKey = !!savedKey
+
   const [checks, setChecks] = useState<Record<string, CheckState>>({})
   const [checkingAll, setCheckingAll] = useState(false)
+  const inFlight = useRef(new Set<string>())
 
   const groups = useMemo(() => {
     const yt = sources.filter((s) => s.type !== 'site')
@@ -153,38 +182,38 @@ export default function Sources() {
 
   const add = async () => {
     setAddError(null)
-    if (!url.trim()) return
+    const trimmed = url.trim()
+    if (!trimmed) return
+    if (!isHttpUrl(trimmed)) {
+      setAddError('Enter a valid http(s) URL.')
+      return
+    }
+    if (sources.some((s) => s.url === trimmed)) {
+      setAddError('Already in your sources — not added again.')
+      return
+    }
     setAdding(true)
     try {
-      const yt = parseYouTubeUrl(url)
+      const yt = parseYouTubeUrl(trimmed)
       let resolvedTitle = title.trim()
       let provider: string | null = null
       if (yt && !resolvedTitle) {
-        const info = await oembedLookup(url.trim())
+        const info = await oembedLookup(trimmed)
         if (info) {
           resolvedTitle = info.title
           provider = info.author || null
         }
       }
-      if (!resolvedTitle && !yt) {
-        try {
-          resolvedTitle = new URL(url.trim()).hostname
-        } catch {
-          setAddError('Enter a valid URL.')
-          setAdding(false)
-          return
-        }
-      }
-      const now = new Date().toISOString()
+      if (!resolvedTitle) resolvedTitle = yt ? trimmed : new URL(trimmed).hostname
       addSource({
         id: crypto.randomUUID(),
-        title: resolvedTitle || url.trim(),
-        url: url.trim(),
+        title: resolvedTitle,
+        url: trimmed,
         type: yt ? (yt.playlistId ? 'youtube-playlist' : 'youtube-video') : 'site',
         provider,
         playlistId: yt?.playlistId ?? null,
         videoId: yt?.videoId ?? null,
-        addedAt: now,
+        addedAt: new Date().toISOString(),
       })
       setUrl('')
       setTitle('')
@@ -194,40 +223,71 @@ export default function Sources() {
   }
 
   const checkOne = async (s: LearningSource) => {
-    if (!s.playlistId) return
-    const key = getYouTubeKey()
-    if (!key) return
-    setChecks((c) => ({ ...c, [s.id]: { checking: true } }))
+    if (!s.playlistId || !hasKey || inFlight.current.has(s.id)) return
+    inFlight.current.add(s.id)
+    // preserve prior pending results while a new check runs
+    setChecks((c) => ({ ...c, [s.id]: { ...c[s.id], checking: true, error: null } }))
     try {
-      const fetched = await fetchPlaylistItems(s.playlistId, key)
-      const first = !s.seenVideoIds || s.seenVideoIds.length === 0
-      // first check baselines silently: everything existing counts as seen
-      if (first) {
-        updateSource({ ...s, seenVideoIds: mergeSeen(fetched, []), lastChecked: new Date().toISOString() })
-        setChecks((c) => ({ ...c, [s.id]: { newVideos: [] } }))
+      const { videos, incomplete } = await fetchAllPlaylistItems(s.playlistId, savedKey)
+      // operate on the LATEST source state, not the render-time closure
+      const latest = useData.getState().sources.find((x) => x.id === s.id)
+      if (!latest) return // removed while checking
+      const now = new Date().toISOString()
+      const plan = planCheck(latest, videos)
+      if (plan.action === 'baseline') {
+        updateSource({ ...latest, seenVideoIds: plan.ackIds, baselinedAt: now, lastChecked: now })
+        setChecks((c) => ({
+          ...c,
+          [s.id]: {
+            newVideos: [],
+            snapshot: videos,
+            incomplete,
+            note: plan.migratedFromPartial
+              ? 'Baseline upgraded to the full playlist (earlier versions only tracked the first page); new uploads are reported from now on.'
+              : videos.length === 0
+                ? 'Playlist is currently empty — its first upload will be reported as new.'
+                : `Baseline established (${videos.length} existing videos marked seen).`,
+          },
+        }))
       } else {
-        updateSource({ ...s, lastChecked: new Date().toISOString() })
-        setChecks((c) => ({ ...c, [s.id]: { newVideos: diffNewVideos(fetched, s.seenVideoIds) } }))
+        updateSource({ ...latest, lastChecked: now })
+        setChecks((c) => ({ ...c, [s.id]: { newVideos: plan.newVideos, snapshot: videos, incomplete } }))
       }
     } catch (e: any) {
-      setChecks((c) => ({ ...c, [s.id]: { error: e?.message ?? String(e) } }))
+      // failures keep pending results and do NOT touch source timestamps
+      setChecks((c) => ({ ...c, [s.id]: { ...c[s.id], checking: false, error: e?.message ?? String(e) } }))
+      return
+    } finally {
+      inFlight.current.delete(s.id)
+      setChecks((c) => ({ ...c, [s.id]: { ...c[s.id], checking: false } }))
     }
   }
 
-  const markSeen = async (s: LearningSource) => {
-    const key = getYouTubeKey()
-    if (!key || !s.playlistId) return
-    const fetched = await fetchPlaylistItems(s.playlistId, key).catch(() => [])
-    updateSource({ ...s, seenVideoIds: mergeSeen(fetched, s.seenVideoIds), lastChecked: new Date().toISOString() })
-    setChecks((c) => ({ ...c, [s.id]: { newVideos: [] } }))
+  const markSeen = (s: LearningSource) => {
+    const snapshot = checks[s.id]?.snapshot
+    if (!snapshot) return // nothing checked yet; never ack from a blind fetch
+    const latest = useData.getState().sources.find((x) => x.id === s.id)
+    if (!latest) return
+    const now = new Date().toISOString()
+    updateSource({
+      ...latest,
+      seenVideoIds: ackVideos(latest.seenVideoIds, snapshot),
+      baselinedAt: latest.baselinedAt ?? now,
+      lastChecked: now,
+    })
+    setChecks((c) => ({ ...c, [s.id]: { ...c[s.id], newVideos: [], note: undefined } }))
   }
 
   const checkAll = async () => {
+    if (checkingAll) return
     setCheckingAll(true)
-    for (const s of sources) {
-      if (s.playlistId) await checkOne(s)
+    try {
+      for (const s of useData.getState().sources) {
+        if (s.playlistId) await checkOne(s)
+      }
+    } finally {
+      setCheckingAll(false)
     }
-    setCheckingAll(false)
   }
 
   const importSeeds = () => {
@@ -247,15 +307,13 @@ export default function Sources() {
     }
   }
 
-  const hasKey = !!getYouTubeKey()
-
   return (
     <div className="mx-auto max-w-3xl p-4 md:p-6">
       <h1 className="mb-1 text-lg font-semibold text-neutral-100">Sources</h1>
       <p className="mb-4 text-xs text-neutral-500">
-        External courses and playlists you follow. Everything opens in a new tab or as a
-        click-to-load player — nothing here is required for reading, and nothing is fetched
-        without your action.
+        External courses and playlists you follow. Links open in a new tab; players load only when
+        you tap them; the watcher fetches only when you click Check. None of this is required for
+        reading, notes or progress.
       </p>
 
       {/* add source */}
@@ -285,7 +343,11 @@ export default function Sources() {
             {adding ? <Spinner className="h-3.5 w-3.5" /> : <Icon name="plus" className="h-3.5 w-3.5" />} Add
           </Button>
         </div>
-        {addError && <p className="text-[11px] text-red-400 sm:col-span-3">{addError}</p>}
+        {addError && (
+          <p className="text-[11px] text-red-400 sm:col-span-3" role="alert">
+            {addError}
+          </p>
+        )}
       </div>
 
       {sources.length === 0 && (
@@ -295,8 +357,8 @@ export default function Sources() {
               <Icon name="download" className="h-3.5 w-3.5" /> Add {SEEDS.length} verified course sources
             </Button>
             <p className="mt-2">
-              Official university playlists (Stanford, MIT, CMU, Harvard) and course sites —
-              verified as published by the universities/authors themselves.
+              University playlists (Stanford, MIT, CMU, Harvard) and course sites — playlist
+              uploaders verified against YouTube before inclusion.
             </p>
           </EmptyState>
         </div>
@@ -319,8 +381,9 @@ export default function Sources() {
                 key={s.id}
                 source={s}
                 check={checks[s.id] ?? {}}
+                hasKey={hasKey}
                 onCheck={() => void checkOne(s)}
-                onMarkSeen={() => void markSeen(s)}
+                onMarkSeen={() => markSeen(s)}
                 onRemove={() => {
                   if (confirm(`Remove "${s.title}" from your sources?`)) removeSource(s.id)
                 }}
@@ -332,15 +395,20 @@ export default function Sources() {
 
       {groups.sites.length > 0 && (
         <section aria-label="Course sites" className="mb-5">
-          <h2 className="mb-2 text-[11px] font-semibold tracking-wider text-neutral-400 uppercase">
+          <h2 className="mb-1 text-[11px] font-semibold tracking-wider text-neutral-400 uppercase">
             Course sites & tools
           </h2>
+          <p className="mb-2 text-[11px] text-neutral-500">
+            Plain links (opened manually) — lumen has no permitted way to check these sites for
+            updates from the browser today, and won't pretend otherwise.
+          </p>
           <ul className="flex flex-col gap-2">
             {groups.sites.map((s) => (
               <SourceCard
                 key={s.id}
                 source={s}
                 check={{}}
+                hasKey={hasKey}
                 onCheck={() => {}}
                 onMarkSeen={() => {}}
                 onRemove={() => {
@@ -356,10 +424,11 @@ export default function Sources() {
       <section aria-label="Watcher setup" className="rounded-xl border border-neutral-800 bg-neutral-900/30 p-4">
         <h2 className="mb-1 text-sm font-semibold text-neutral-200">Lecture watcher (optional)</h2>
         <p className="mb-2 text-[11px] leading-relaxed text-neutral-500">
-          "Check" uses the official YouTube Data API with <b>your own free API key</b> — create one
-          in Google Cloud Console (enable "YouTube Data API v3" → Credentials → API key; restrict it
-          to that API and to your app's URL). The key stays in this browser's localStorage, is never
-          synced, and nothing is checked automatically — only when you click.
+          "Check" calls the YouTube Data API v3 with <b>your own API key</b> (Google Cloud Console →
+          enable YouTube Data API v3 → Credentials → API key). The key is stored only in this
+          browser's localStorage — never synced, exported or logged. Be aware that any key used
+          from a browser is visible to whoever can use this device; restricting it (to the YouTube
+          Data API and your app URL) limits misuse but does not make it secret.
         </p>
         <div className="flex flex-wrap items-center gap-2">
           <label className="sr-only" htmlFor="yt-key">
@@ -368,24 +437,61 @@ export default function Sources() {
           <input
             id="yt-key"
             type="password"
-            value={apiKey}
-            onChange={(e) => setApiKey(e.target.value)}
+            value={keyInput}
+            onChange={(e) => setKeyInput(e.target.value)}
             placeholder="YouTube Data API key"
             autoComplete="off"
             className="w-64 rounded-md border border-neutral-800 bg-neutral-900 px-2 py-1.5 text-xs focus:ring-1 focus:ring-amber-500 focus:outline-none"
           />
           <Button
             onClick={() => {
-              setYouTubeKey(apiKey)
-              setApiKey(getYouTubeKey())
+              setYouTubeKey(keyInput)
+              setSavedKey(getYouTubeKey())
             }}
+            disabled={!keyInput.trim()}
           >
             Save key
           </Button>
-          <span className={cn('text-[11px]', hasKey ? 'text-emerald-400' : 'text-neutral-500')}>
-            {hasKey ? 'key set (device-local)' : 'no key — embeds and links still work'}
+          <Button
+            variant="ghost"
+            onClick={() => {
+              setYouTubeKey('')
+              setKeyInput('')
+              setSavedKey('')
+            }}
+            disabled={!hasKey}
+          >
+            Clear key
+          </Button>
+          <span
+            className={cn('text-[11px]', hasKey ? 'text-emerald-400' : 'text-neutral-500')}
+            data-testid="key-status"
+          >
+            {hasKey ? 'key set (device-local)' : 'no key — links and embeds still work'}
           </span>
         </div>
+      </section>
+
+      {/* provider terms & data handling */}
+      <section aria-label="Third-party terms" className="mt-4 rounded-xl border border-neutral-800 bg-neutral-900/20 p-4 text-[11px] leading-relaxed text-neutral-500">
+        <h2 className="mb-1 text-xs font-semibold text-neutral-300">Third-party services & data</h2>
+        <p>
+          YouTube players and the lecture watcher use YouTube API Services. By using them you agree
+          to the{' '}
+          <a href="https://www.youtube.com/t/terms" target="_blank" rel="noreferrer" className="text-amber-400 underline">
+            YouTube Terms of Service
+          </a>
+          ; Google's{' '}
+          <a href="https://policies.google.com/privacy" target="_blank" rel="noreferrer" className="text-amber-400 underline">
+            Privacy Policy
+          </a>{' '}
+          applies. API responses are displayed transiently and not retained; what lumen stores on a
+          source record is limited to the video IDs you explicitly mark seen, a baseline flag and
+          check timestamps. That watcher bookkeeping syncs with your sources — your notes, decks
+          and reading progress are separate user-created data and are never touched or deleted by
+          source operations. All network checks are user-initiated; nothing polls in the
+          background.
+        </p>
       </section>
     </div>
   )

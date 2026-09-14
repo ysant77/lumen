@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { resolveItem } from '../lib/catalog'
+import { writePdf } from '../lib/opfs'
 import { useData } from '../store/data'
 import { useTimer } from '../store/timer'
 import PdfReader from '../components/PdfReader'
@@ -33,6 +34,8 @@ export default function Workspace() {
   const setStatus = useData((s) => s.setStatus)
   const weekQueue = useData((s) => s.weekQueue)
   const setWeekQueue = useData((s) => s.setWeekQueue)
+  const updateCustomItem = useData((s) => s.updateCustomItem)
+  const refreshPdfList = useData((s) => s.refreshPdfList)
   const attach = useTimer((s) => s.attach)
   const [tab, setTab] = useState<Tab>('notes')
   const [layout, setLayout] = useState<LayoutMode>(() => (window.innerWidth < 900 ? 'reader' : 'split'))
@@ -93,6 +96,22 @@ export default function Workspace() {
   const { item, collection } = found
   const status = progress?.status ?? 'not-started'
   const queued = weekQueue.items.includes(id)
+  const customItem = customItems.find((c) => c.id === id)
+
+  // book-reading path: attach a PDF the user is permitted to use to a manual
+  // resource; stored in the same local OPFS as every other PDF (never uploaded)
+  const attachPdf = customItem
+    ? async (file: File): Promise<string | null> => {
+        const buf = await file.arrayBuffer()
+        const head = new Uint8Array(buf.slice(0, 5))
+        if (String.fromCharCode(...head) !== '%PDF-') return 'That file is not a PDF.'
+        const basename = `${customItem.id}.pdf`
+        await writePdf(basename, buf)
+        updateCustomItem({ ...customItem, pdfFile: basename })
+        await refreshPdfList()
+        return null
+      }
+    : undefined
 
   const showReader = layout !== 'work'
   const showWork = layout !== 'reader'
@@ -189,6 +208,7 @@ export default function Workspace() {
               requestedPage={requestedPage}
               onPageHandled={() => setRequestedPage(null)}
               onAddPageNote={addPageNote}
+              onAttachPdf={attachPdf}
             />
           </div>
         )}

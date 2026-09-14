@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { DEFAULT_TOPICS, dedupePapers, extractArxivId, mapWork, reconstructAbstract } from './radar'
+import { DEFAULT_TOPICS, buildSearchUrl, dedupePapers, extractArxivId, mapWork, reconstructAbstract } from './radar'
 import type { RadarPaper } from '../types'
 
 const paper = (over: Partial<RadarPaper>): RadarPaper => ({
@@ -99,5 +99,19 @@ describe('radar (OpenAlex client)', () => {
       expect(t.query.length).toBeGreaterThan(5)
       expect(t.days).toBeGreaterThan(0)
     }
+  })
+})
+
+describe('search modes: recent discovery vs all-time research', () => {
+  const topic = { id: 't', label: 'T', query: 'state space models', days: 60 }
+  it('recent mode windows by date and sorts newest-first', () => {
+    const u = buildSearchUrl(topic, 'recent')
+    expect(u).toContain('from_publication_date')
+    expect(u).toContain('sort=publication_date%3Adesc')
+  })
+  it('all-time mode drops the window and ranks by relevance', () => {
+    const u = buildSearchUrl(topic, 'alltime')
+    expect(u).not.toContain('from_publication_date')
+    expect(u).toContain('sort=relevance_score%3Adesc')
   })
 })

@@ -101,9 +101,28 @@ function mergeStructured(path: string, local: any, remote: any): unknown | null 
     for (const [id, when] of Object.entries<string>(local.deleted ?? {})) {
       if (!deleted[id] || ts(when) > ts(deleted[id])) deleted[id] = when
     }
-    const items = unionById<any>(remote.items ?? [], local.items ?? [], 'updatedAt', 'addedAt').filter(
-      (it) => !deleted[it.id] || ts(deleted[it.id]) < ts(it.updatedAt ?? it.addedAt),
-    )
+    let items = unionById<any>(remote.items ?? [], local.items ?? [], 'updatedAt', 'addedAt')
+    if (path === 'sources.json') {
+      // acknowledgements survive concurrent edits: union seen ids, keep the
+      // newest lastChecked and any established baseline, whatever item wins
+      const byId = (arr: any[]) => new Map<string, any>(arr.map((x) => [x.id, x]))
+      const l = byId(local.items ?? [])
+      const r = byId(remote.items ?? [])
+      items = items.map((winner) => {
+        const a = l.get(winner.id)
+        const b = r.get(winner.id)
+        if (!a || !b) return winner
+        const seenVideoIds = [...new Set([...(a.seenVideoIds ?? []), ...(b.seenVideoIds ?? [])])]
+        const lastChecked = ts(a.lastChecked) >= ts(b.lastChecked) ? a.lastChecked : b.lastChecked
+        const baselinedAt = a.baselinedAt ?? b.baselinedAt ?? winner.baselinedAt
+        const out = { ...winner }
+        if (seenVideoIds.length > 0) out.seenVideoIds = seenVideoIds
+        if (lastChecked) out.lastChecked = lastChecked
+        if (baselinedAt) out.baselinedAt = baselinedAt
+        return out
+      })
+    }
+    items = items.filter((it) => !deleted[it.id] || ts(deleted[it.id]) < ts(it.updatedAt ?? it.addedAt))
     return { version: 1, items, deleted }
   }
   if (path === 'radar.json') {

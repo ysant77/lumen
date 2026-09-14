@@ -88,6 +88,8 @@ export interface LearningSource {
   /** watcher bookkeeping: set only by explicit user actions */
   lastChecked?: string | null
   seenVideoIds?: string[]
+  /** set once a COMPLETE (paginated) baseline exists; absent = never/partial */
+  baselinedAt?: string | null
 }
 
 // ---------- User data (synced to the private data repo) ----------

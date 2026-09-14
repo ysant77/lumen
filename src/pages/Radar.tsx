@@ -1,8 +1,8 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import type { CustomItem, RadarPaper, RadarTopic } from '../types'
-import { arxivPdfUrl, searchTopic } from '../lib/radar'
-import { parseRef, resolveRef } from '../lib/lookup'
+import { arxivPdfUrl, searchTopic, type SearchMode } from '../lib/radar'
+import { buildManualItem, findDuplicateByTitle, parseRef, resolveRef } from '../lib/lookup'
 import { writePdf } from '../lib/opfs'
 import { useData } from '../store/data'
 import { Button, Chip, EmptyState, Icon, Spinner, cn } from '../components/ui'
@@ -43,7 +43,7 @@ function PaperCard({
   paper: RadarPaper
   isNew: boolean
   added: boolean
-  onAdd: (p: RadarPaper, fetchPdf: boolean) => Promise<void>
+  onAdd: (p: RadarPaper, fetchPdf: boolean) => Promise<boolean>
 }) {
   const [expanded, setExpanded] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -121,6 +121,11 @@ export default function Radar() {
   // ad-hoc research (one-off search, not saved unless the user says so)
   const [adhocInput, setAdhocInput] = useState('')
   const [adhoc, setAdhoc] = useState<RadarTopic | null>(null)
+  const [adhocMode, setAdhocMode] = useState<SearchMode>('recent')
+
+  // async guards: obsolete responses (results, errors, loading) are ignored
+  const loadSeq = useRef(0)
+  const lookupSeq = useRef(0)
 
   // add a specific paper/book
   const [refInput, setRefInput] = useState('')
@@ -133,12 +138,15 @@ export default function Radar() {
   const addedIds = useMemo(() => new Set(customItems.map((i) => i.id)), [customItems])
 
   const load = useCallback(
-    async (topic: RadarTopic, persistCheck = true) => {
+    async (topic: RadarTopic, persistCheck = true, mode: SearchMode = 'recent') => {
+      const seq = ++loadSeq.current
       setLoading(true)
       setError(null)
       setNewSince(persistCheck ? (topic.lastChecked ?? null) : null)
       try {
-        setPapers(await searchTopic(topic))
+        const results = await searchTopic(topic, mode)
+        if (seq !== loadSeq.current) return // an older request finished late: ignore it
+        setPapers(results)
         if (persistCheck) {
           const now = new Date().toISOString()
           saveRadarTopics(
@@ -146,10 +154,11 @@ export default function Radar() {
           )
         }
       } catch (e: any) {
+        if (seq !== loadSeq.current) return // stale error must not blame the current topic
         setError(e?.message ?? String(e))
         setPapers([])
       } finally {
-        setLoading(false)
+        if (seq === loadSeq.current) setLoading(false)
       }
     },
     [saveRadarTopics],
@@ -160,12 +169,12 @@ export default function Radar() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeId])
 
-  const runAdhoc = () => {
+  const runAdhoc = (mode: SearchMode = adhocMode) => {
     const q = adhocInput.trim()
     if (!q) return
     const topic: RadarTopic = { id: 'adhoc', label: q, query: q, days: 365 }
     setAdhoc(topic)
-    void load(topic, false)
+    void load(topic, false, mode)
   }
 
   const saveAdhocAsTopic = () => {
@@ -177,68 +186,64 @@ export default function Radar() {
   }
 
   const lookupRef = async () => {
+    const seq = ++lookupSeq.current
+    const requestedInput = refInput.trim()
     setRefMessage(null)
     setRefPreview(null)
     setManual(null)
-    const ref = parseRef(refInput)
+    const ref = parseRef(requestedInput)
     if (!ref) {
       // not an arXiv/DOI reference: offer manual entry (books, sites, reports)
-      setManual({ title: '', url: /^https?:\/\//.test(refInput.trim()) ? refInput.trim() : '', year: '', authors: '' })
+      setManual({ title: '', url: /^https?:\/\//.test(requestedInput) ? requestedInput : '', year: '', authors: '' })
       setRefMessage('Not an arXiv/DOI reference — add it manually below (works for books too).')
       return
     }
+    const prefillUrl = ref.kind === 'arxiv' ? `https://arxiv.org/abs/${ref.value}` : `https://doi.org/${ref.value}`
     setRefBusy(true)
     try {
       const paper = await resolveRef(ref)
+      // obsolete responses (newer lookup started, or the input changed) are dropped
+      if (seq !== lookupSeq.current || refInput.trim() !== requestedInput) return
       if (paper) setRefPreview(paper)
       else {
-        setManual({
-          title: '',
-          url: ref.kind === 'arxiv' ? `https://arxiv.org/abs/${ref.value}` : `https://doi.org/${ref.value}`,
-          year: '',
-          authors: '',
-        })
+        setManual({ title: '', url: prefillUrl, year: '', authors: '' })
         setRefMessage('Reference not found in OpenAlex yet — you can still add it manually.')
       }
     } catch (e: any) {
-      setRefMessage(`Lookup failed: ${e?.message ?? e}`)
+      if (seq !== lookupSeq.current || refInput.trim() !== requestedInput) return
+      // a FAILED lookup also deserves the manual path, not a dead end
+      setManual({ title: '', url: prefillUrl, year: '', authors: '' })
+      setRefMessage(`Lookup failed (${e?.message ?? e}) — you can add it manually below.`)
     } finally {
-      setRefBusy(false)
+      if (seq === lookupSeq.current) setRefBusy(false)
     }
   }
 
   const addManual = () => {
-    if (!manual || !manual.title.trim()) return
-    const now = new Date().toISOString()
-    const arxivFromUrl = /arxiv\.org\/(?:abs|pdf)\/(\d{4}\.\d{4,5})/.exec(manual.url)
-    const id = `x-${arxivFromUrl?.[1] ?? slugify(manual.title) ?? crypto.randomUUID().slice(0, 8)}`
-    addCustomItem({
-      id,
-      order: customItems.length + 1,
-      phase: 'Inbox',
-      shortName: manual.title.split(':')[0].slice(0, 40),
-      title: manual.title.trim(),
-      year: manual.year || '',
-      authors: manual.authors || null,
-      priority: null,
-      difficulty: null,
-      why: null,
-      exercise: null,
-      pageUrl: manual.url || null,
-      pdfUrl: arxivFromUrl ? arxivPdfUrl(arxivFromUrl[1]) : null,
-      pdfFile: arxivFromUrl ? `arxiv-${arxivFromUrl[1]}.pdf` : null,
-      pdfDir: null,
-      addedAt: now,
-      source: 'manual',
-    })
+    if (!manual) return
+    const built = buildManualItem(manual, customItems.length + 1)
+    if (built.error !== undefined || !built.item) {
+      setRefMessage(built.error ?? 'Could not build the entry.')
+      return
+    }
+    // duplicates are explicit: same-title items (e.g. another edition) need consent
+    const dup = findDuplicateByTitle(customItems, built.item.title)
+    if (dup && !confirm(`"${dup.title}" is already in your Inbox. Add this as a separate entry (e.g. another edition)?`)) {
+      setRefMessage('Not added — already in your Inbox.')
+      return
+    }
+    if (!addCustomItem(built.item)) {
+      setRefMessage(`Not added — this exact reference is already in your Inbox.`)
+      return
+    }
     setManual(null)
     setRefInput('')
     setRefMessage('Added to your Inbox.')
   }
 
-  const onAdd = async (p: RadarPaper, fetchPdf: boolean) => {
+  const onAdd = async (p: RadarPaper, fetchPdf: boolean): Promise<boolean> => {
     const item = toCustomItem(p, customItems.length + 1)
-    addCustomItem(item)
+    if (!addCustomItem(item)) return false
     if (fetchPdf && item.pdfFile && item.pdfUrl) {
       try {
         const res = await fetch(item.pdfUrl)
@@ -251,6 +256,7 @@ export default function Radar() {
         /* PDF fetch is best-effort; reader offers a retry */
       }
     }
+    return true
   }
 
   const addTopic = () => {
@@ -304,7 +310,23 @@ export default function Radar() {
           placeholder="Research any topic… (e.g. state space models long context)"
           className="min-w-56 flex-1 rounded-md border border-neutral-800 bg-neutral-900 px-2.5 py-1.5 text-xs focus:ring-1 focus:ring-amber-500 focus:outline-none"
         />
-        <Button variant="primary" onClick={runAdhoc} disabled={!adhocInput.trim()}>
+        <label className="sr-only" htmlFor="adhoc-mode">
+          Search mode
+        </label>
+        <select
+          id="adhoc-mode"
+          value={adhocMode}
+          onChange={(e) => {
+            const mode = e.target.value as SearchMode
+            setAdhocMode(mode)
+            if (adhoc) runAdhoc(mode)
+          }}
+          className="rounded-md border border-neutral-800 bg-neutral-900 px-2 py-1.5 text-xs"
+        >
+          <option value="recent">recent (1y, newest)</option>
+          <option value="alltime">all-time (relevance)</option>
+        </select>
+        <Button variant="primary" onClick={() => runAdhoc()} disabled={!adhocInput.trim()}>
           <Icon name="search" className="h-3.5 w-3.5" /> Search
         </Button>
         {adhoc && (
@@ -363,10 +385,10 @@ export default function Radar() {
               <Button
                 variant="primary"
                 onClick={async () => {
-                  await onAdd(refPreview, !!refPreview.arxivId)
+                  const added = await onAdd(refPreview, !!refPreview.arxivId)
                   setRefPreview(null)
-                  setRefInput('')
-                  setRefMessage('Added to your Inbox.')
+                  if (added) setRefInput('')
+                  setRefMessage(added ? 'Added to your Inbox.' : 'Not added — already in your Inbox.')
                 }}
               >
                 Add to Inbox

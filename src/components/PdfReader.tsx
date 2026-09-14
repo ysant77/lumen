@@ -159,6 +159,7 @@ export default function PdfReader({
   requestedPage,
   onPageHandled,
   onAddPageNote,
+  onAttachPdf,
 }: {
   itemId: string
   pdfFile: string | null
@@ -167,12 +168,16 @@ export default function PdfReader({
   requestedPage?: number | null
   onPageHandled?: () => void
   onAddPageNote?: (page: number) => void
+  /** manual resources: attach a PDF the user is permitted to use (returns error or null) */
+  onAttachPdf?: (file: File) => Promise<string | null>
 }) {
   const [doc, setDoc] = useState<PDFDocumentProxy | null>(null)
   const [pageSizes, setPageSizes] = useState<PageInfo[]>([])
   const [state, setState] = useState<'loading' | 'ready' | 'missing' | 'unsupported'>('loading')
   const [fetching, setFetching] = useState(false)
   const [fetchError, setFetchError] = useState<string | null>(null)
+  const [attachError, setAttachError] = useState<string | null>(null)
+  const attachInputRef = useRef<HTMLInputElement>(null)
   const [reloadTick, setReloadTick] = useState(0)
   const [fitScale, setFitScale] = useState(1)
   const [zoom, setZoom] = useState<number | 'fit'>('fit')
@@ -439,6 +444,33 @@ export default function PdfReader({
               {fetchError && <span className="text-red-400">failed: {fetchError}</span>}
             </div>
           )}
+          {onAttachPdf && (
+            <div className="mb-3 flex flex-col items-center gap-1.5">
+              <input
+                ref={attachInputRef}
+                type="file"
+                accept="application/pdf,.pdf"
+                hidden
+                onChange={async (e) => {
+                  const f = e.target.files?.[0]
+                  if (!f) return
+                  setAttachError(null)
+                  const err = await onAttachPdf(f)
+                  if (err) setAttachError(err)
+                  else setReloadTick((t) => t + 1)
+                  e.target.value = ''
+                }}
+              />
+              <Button variant="primary" onClick={() => attachInputRef.current?.click()}>
+                <Icon name="upload" className="h-3.5 w-3.5" /> Attach a PDF from this device
+              </Button>
+              <span className="text-neutral-500">
+                Use a copy you own or are permitted to read — it stays in this device's local
+                storage and is never uploaded.
+              </span>
+              {attachError && <span className="text-red-400">{attachError}</span>}
+            </div>
+          )}
           {pdfFile ? (
             <>
               Or import your library in{' '}
@@ -447,6 +479,8 @@ export default function PdfReader({
               </Link>{' '}
               (expects <code className="text-neutral-400">{pdfFile}</code>)
             </>
+          ) : onAttachPdf ? (
+            'This manual resource has no PDF yet.'
           ) : (
             'No freely downloadable PDF exists for this item — use the source link in the Info tab.'
           )}

@@ -75,6 +75,9 @@ export function Button({
   className,
   title,
   type,
+  'aria-label': ariaLabel,
+  'aria-expanded': ariaExpanded,
+  'aria-pressed': ariaPressed,
 }: {
   children: ReactNode
   onClick?: () => void
@@ -83,6 +86,9 @@ export function Button({
   className?: string
   title?: string
   type?: 'button' | 'submit'
+  'aria-label'?: string
+  'aria-expanded'?: boolean
+  'aria-pressed'?: boolean
 }) {
   const styles = {
     default: 'border-neutral-700 bg-neutral-900 hover:bg-neutral-800 text-neutral-200',
@@ -94,6 +100,9 @@ export function Button({
     <button
       type={type ?? 'button'}
       title={title}
+      aria-label={ariaLabel}
+      aria-expanded={ariaExpanded}
+      aria-pressed={ariaPressed}
       disabled={disabled}
       onClick={onClick}
       className={cn(

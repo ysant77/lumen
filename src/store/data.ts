@@ -61,7 +61,9 @@ interface DataState {
   saveDeck(itemId: string, cards: Flashcard[]): void
   saveExperiments(itemId: string, records: ExperimentRecord[]): void
   addSession(s: FocusSession): void
-  addCustomItem(item: CustomItem): void
+  /** returns false when the id already exists (duplicate — no silent success) */
+  addCustomItem(item: CustomItem): boolean
+  updateCustomItem(item: CustomItem): void
   removeCustomItem(itemId: string): void
   addSource(source: LearningSource): void
   updateSource(source: LearningSource): void
@@ -338,11 +340,21 @@ export const useData = create<DataState>((set, get) => {
     },
 
     addCustomItem(item) {
-      if (get().customItems.some((i) => i.id === item.id)) return
+      if (get().customItems.some((i) => i.id === item.id)) return false
       const stamped = { ...item, updatedAt: item.updatedAt ?? new Date().toISOString() }
       const deleted = { ...get().customDeleted }
       delete deleted[item.id]
       persistCustom([...get().customItems, stamped], deleted)
+      return true
+    },
+
+    updateCustomItem(item) {
+      persistCustom(
+        get().customItems.map((i) =>
+          i.id === item.id ? { ...item, updatedAt: new Date().toISOString() } : i,
+        ),
+        get().customDeleted,
+      )
     },
 
     removeCustomItem(itemId) {
