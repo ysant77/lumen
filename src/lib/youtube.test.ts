@@ -101,26 +101,49 @@ describe('fetchAllPlaylistItems — REGRESSION: multi-page playlists', () => {
 
 describe('planCheck — baselines, empty playlists, migration', () => {
   it('first check on an EMPTY playlist establishes a real (empty) baseline', () => {
-    const plan = planCheck({ seenVideoIds: undefined, baselinedAt: undefined }, [])
+    const plan = planCheck({ seenVideoIds: undefined, baselinedAt: undefined }, [], false)
     expect(plan).toEqual({ action: 'baseline', ackIds: [], migratedFromPartial: false })
     // after baselining, the playlist's first upload IS new
-    const later = planCheck({ seenVideoIds: [], baselinedAt: '2026-09-01' }, [vid('first')])
+    const later = planCheck({ seenVideoIds: [], baselinedAt: '2026-09-01' }, [vid('first')], false)
     expect(later.action).toBe('diff')
     expect((later as any).newVideos.map((v: PlaylistVideo) => v.videoId)).toEqual(['first'])
   })
 
   it('REGRESSION: migrates pre-1.3.1 partial baselines without flooding "new"', () => {
     // old behaviour stored only the first ~15 ids and no baselinedAt
-    const plan = planCheck({ seenVideoIds: ['v1', 'v2'], baselinedAt: undefined }, [vid('v1'), vid('v2'), vid('v3'), vid('v4')])
+    const plan = planCheck(
+      { seenVideoIds: ['v1', 'v2'], baselinedAt: undefined },
+      [vid('v1'), vid('v2'), vid('v3'), vid('v4')],
+      false,
+    )
     expect(plan.action).toBe('baseline')
     expect((plan as any).migratedFromPartial).toBe(true)
     expect((plan as any).ackIds).toEqual(['v1', 'v2', 'v3', 'v4'])
   })
 
   it('diffs against acknowledgements once baselined', () => {
-    const plan = planCheck({ seenVideoIds: ['v1', 'v2'], baselinedAt: '2026-09-01' }, [vid('v1'), vid('v2'), vid('v3')])
+    const plan = planCheck(
+      { seenVideoIds: ['v1', 'v2'], baselinedAt: '2026-09-01' },
+      [vid('v1'), vid('v2'), vid('v3')],
+      false,
+    )
     expect(plan.action).toBe('diff')
     expect((plan as any).newVideos.map((v: PlaylistVideo) => v.videoId)).toEqual(['v3'])
+  })
+
+  it('REGRESSION: an incomplete fetch never establishes a baseline', () => {
+    // unbaselined + truncated fetch -> explicit refusal, nothing acked
+    const plan = planCheck({ seenVideoIds: undefined, baselinedAt: undefined }, [vid('v1'), vid('v2')], true)
+    expect(plan).toEqual({ action: 'no-baseline-incomplete' })
+    // even a pre-1.3.1 partial seen-list must NOT be "upgraded" from a truncated fetch
+    const migrating = planCheck({ seenVideoIds: ['v1'], baselinedAt: undefined }, [vid('v1'), vid('v2')], true)
+    expect(migrating).toEqual({ action: 'no-baseline-incomplete' })
+  })
+
+  it('once baselined, an incomplete fetch still diffs the fetched portion', () => {
+    const plan = planCheck({ seenVideoIds: ['v1'], baselinedAt: '2026-09-01' }, [vid('v1'), vid('v2')], true)
+    expect(plan.action).toBe('diff')
+    expect((plan as any).newVideos.map((v: PlaylistVideo) => v.videoId)).toEqual(['v2'])
   })
 })
 

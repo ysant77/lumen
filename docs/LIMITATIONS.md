@@ -28,19 +28,27 @@ Third-party integrations must always be (and the YouTube watcher complies):
 - **Checks paginate the full playlist** (new lectures are appended at the
   end) within a bounded request budget (~400 videos); larger playlists are
   flagged as an *incomplete check* rather than silently truncated.
-- **Baselines are explicit.** The first check acknowledges the entire current
-  playlist (an empty playlist baselines to empty, so its first upload is
-  reported). Pre-1.3.1 partial baselines are upgraded once, silently.
+- **Baselines are explicit and only ever complete.** The first check
+  acknowledges the entire current playlist (an empty playlist baselines to
+  empty, so its first upload is reported). A truncated (budget-limited) fetch
+  never establishes or upgrades a baseline — neither via Check nor via
+  "mark seen" on a truncated snapshot; such playlists stay "not baselined"
+  and say so. Pre-1.3.1 partial baselines are upgraded once, silently, on the
+  first complete check.
 - **"Mark seen" acknowledges exactly the checked snapshot** — never a fresh
   fetch — and acknowledgements are never evicted, so acknowledged videos are
   not re-reported. Acks survive cross-device merges (union), including edits
   made elsewhere.
 - **oEmbed titles are best-effort**; if YouTube declines the request the
   source keeps the title you typed (or the raw URL).
-- **API data handling**: watcher responses are displayed transiently and not
-  retained; only acknowledged video IDs, the baseline flag and timestamps are
-  stored on the source record. This bookkeeping is separate from user-created
-  notes/decks/progress, which source operations never touch or delete.
+- **YouTube-derived data that IS stored**: a source's title and uploader name
+  (fetched once via oEmbed when you add it) are saved on the source record
+  and sync with it; they are kept only as long as the source exists and are
+  deleted with it. Watcher (Data API) responses are displayed transiently and
+  not retained beyond the current check; acknowledged video IDs, the baseline
+  flag and check timestamps are persisted. This bookkeeping is separate from
+  user-created notes/decks/progress, which source operations never touch or
+  delete.
 - **University course sites are plain links.** lumen currently has no
   permitted browser-side adapter for discovering or checking updates on those
   sites, and does not pretend to; they stay links unless/until real permitted

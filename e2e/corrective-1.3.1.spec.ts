@@ -85,6 +85,42 @@ test.describe('watcher (multi-page playlists, baselines, failures, snapshot acks
     await expect(page.getByRole('link', { name: /Lecture v4/ })).toBeHidden()
   })
 
+  test('REGRESSION: an incomplete (budget-truncated) fetch never establishes a baseline', async ({ page }) => {
+    let bigMode = true // endless nextPageToken -> exceeds the 8-page budget
+    await page.route('**/youtube/v3/playlistItems**', (route) => {
+      const u = new URL(route.request().url())
+      const token = u.searchParams.get('pageToken') ?? 'P0'
+      const item = (id: string) => ({
+        snippet: { title: `Lecture ${id}`, publishedAt: '2026-09-01T00:00:00Z', resourceId: { videoId: id } },
+      })
+      if (bigMode) {
+        const n = Number(token.slice(1))
+        return route.fulfill({ json: { nextPageToken: `P${n + 1}`, items: [item(`big${n}`)] } })
+      }
+      return route.fulfill({ json: { items: [item('a'), item('b')] } })
+    })
+    await page.route('**/www.youtube.com/oembed*', (route) =>
+      route.fulfill({ json: { title: 'Huge Course', author_name: 'Test U' } }),
+    )
+    await page.addInitScript(() => localStorage.setItem('lumen.youtube.apiKey', 'test-key'))
+
+    await page.goto('#/sources')
+    await page.getByLabel(/URL \(YouTube/).fill('https://www.youtube.com/playlist?list=PLBIG999')
+    await page.getByRole('button', { name: 'Add', exact: true }).click()
+    await expect(page.getByText('Huge Course')).toBeVisible()
+
+    // truncated check: explicit refusal, source stays un-baselined, nothing acked
+    await page.getByRole('button', { name: /Check Huge Course/ }).click()
+    await expect(page.getByText(/complete baseline could not be established/)).toBeVisible()
+    await expect(page.getByText('not baselined yet')).toBeVisible()
+
+    // once the playlist fits the budget, a complete check baselines normally
+    bigMode = false
+    await page.getByRole('button', { name: /Check Huge Course/ }).click()
+    await expect(page.getByText(/Baseline established \(2 existing videos/)).toBeVisible()
+    await expect(page.getByText('not baselined yet')).toBeHidden()
+  })
+
   test('saving and clearing the API key updates controls and status immediately', async ({ page }) => {
     await page.goto('#/sources')
     const status = page.getByTestId('key-status')
@@ -165,6 +201,43 @@ test.describe('research & manual books', () => {
       .locator('input[type="file"][accept*="pdf"]')
       .setInputFiles({ name: 'book.pdf', mimeType: 'application/pdf', buffer: Buffer.from(tinyPdf()) })
     await expect(page.locator('.page-shell canvas').first()).toBeVisible({ timeout: 20_000 })
+  })
+
+  test('REGRESSION: input changes invalidate pending lookups and reset busy state', async ({ page }) => {
+    await page.route('**/api.openalex.org/**', async (route) => {
+      const u = new URL(route.request().url())
+      if ((u.searchParams.get('filter') ?? '').includes('slow-doi')) {
+        await new Promise((r) => setTimeout(r, 2000))
+        return route.fulfill({
+          json: { meta: { count: 1 }, results: [makeWork('STALE PREVIEW paper')] },
+        })
+      }
+      return route.fulfill({ json: { meta: { count: 0 }, results: [] } })
+    })
+    await page.goto('#/radar')
+    const refBox = page.getByLabel('Add a specific paper or book')
+    const lookupBtn = page.getByRole('button', { name: 'Look up' })
+
+    // case 1: switch from a pending DOI lookup to manual entry (Enter submits
+    // even while the button shows busy — that's the user's escape hatch)
+    await refBox.fill('10.1234/slow-doi.1')
+    await lookupBtn.click()
+    await expect(lookupBtn).toBeDisabled() // busy while pending
+    await refBox.fill('Just A Book Title')
+    await refBox.press('Enter')
+    await expect(page.getByText(/add it manually below/)).toBeVisible()
+    await expect(lookupBtn).toBeEnabled() // busy state reset, not stuck
+    await page.waitForTimeout(2400) // let the stale response arrive
+    await expect(page.getByText('STALE PREVIEW paper')).toBeHidden()
+    await expect(page.getByLabel('Title (required)')).toBeVisible() // manual form kept
+
+    // case 2: the input merely drifts (typing, no second click)
+    await refBox.fill('10.1234/slow-doi.2')
+    await lookupBtn.click()
+    await refBox.fill('10.1234/slow-doi.2-edited')
+    await page.waitForTimeout(2400)
+    await expect(page.getByText('STALE PREVIEW paper')).toBeHidden() // obsolete preview dropped
+    await expect(lookupBtn).toBeEnabled() // and busy cleared
   })
 
   test('manual entries reject non-http(s) links and duplicates are explicit', async ({ page }) => {

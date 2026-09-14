@@ -233,8 +233,18 @@ export default function Sources() {
       const latest = useData.getState().sources.find((x) => x.id === s.id)
       if (!latest) return // removed while checking
       const now = new Date().toISOString()
-      const plan = planCheck(latest, videos)
-      if (plan.action === 'baseline') {
+      const plan = planCheck(latest, videos, incomplete)
+      if (plan.action === 'no-baseline-incomplete') {
+        // a truncated fetch must never claim (or upgrade to) a complete baseline
+        updateSource({ ...latest, lastChecked: now })
+        setChecks((c) => ({
+          ...c,
+          [s.id]: {
+            incomplete: true,
+            note: 'This playlist exceeds one check\u2019s request budget, so a complete baseline could not be established — nothing was marked seen.',
+          },
+        }))
+      } else if (plan.action === 'baseline') {
         updateSource({ ...latest, seenVideoIds: plan.ackIds, baselinedAt: now, lastChecked: now })
         setChecks((c) => ({
           ...c,
@@ -264,7 +274,8 @@ export default function Sources() {
   }
 
   const markSeen = (s: LearningSource) => {
-    const snapshot = checks[s.id]?.snapshot
+    const state = checks[s.id]
+    const snapshot = state?.snapshot
     if (!snapshot) return // nothing checked yet; never ack from a blind fetch
     const latest = useData.getState().sources.find((x) => x.id === s.id)
     if (!latest) return
@@ -272,7 +283,9 @@ export default function Sources() {
     updateSource({
       ...latest,
       seenVideoIds: ackVideos(latest.seenVideoIds, snapshot),
-      baselinedAt: latest.baselinedAt ?? now,
+      // an incomplete snapshot may acknowledge what was seen, but must never
+      // establish a complete baseline it cannot vouch for
+      baselinedAt: latest.baselinedAt ?? (state.incomplete ? null : now),
       lastChecked: now,
     })
     setChecks((c) => ({ ...c, [s.id]: { ...c[s.id], newVideos: [], note: undefined } }))
@@ -476,8 +489,8 @@ export default function Sources() {
       <section aria-label="Third-party terms" className="mt-4 rounded-xl border border-neutral-800 bg-neutral-900/20 p-4 text-[11px] leading-relaxed text-neutral-500">
         <h2 className="mb-1 text-xs font-semibold text-neutral-300">Third-party services & data</h2>
         <p>
-          YouTube players and the lecture watcher use YouTube API Services. By using them you agree
-          to the{' '}
+          YouTube players, title lookup and the lecture watcher use YouTube API Services. By using
+          them you agree to the{' '}
           <a href="https://www.youtube.com/t/terms" target="_blank" rel="noreferrer" className="text-amber-400 underline">
             YouTube Terms of Service
           </a>
@@ -485,12 +498,15 @@ export default function Sources() {
           <a href="https://policies.google.com/privacy" target="_blank" rel="noreferrer" className="text-amber-400 underline">
             Privacy Policy
           </a>{' '}
-          applies. API responses are displayed transiently and not retained; what lumen stores on a
-          source record is limited to the video IDs you explicitly mark seen, a baseline flag and
-          check timestamps. That watcher bookkeeping syncs with your sources — your notes, decks
-          and reading progress are separate user-created data and are never touched or deleted by
-          source operations. All network checks are user-initiated; nothing polls in the
-          background.
+          applies. What lumen stores from YouTube: when you add a YouTube source, its{' '}
+          <b className="text-neutral-400">title and uploader name</b> (fetched once via oEmbed) are
+          saved on that source record and sync with it — this YouTube-derived metadata is kept only
+          as long as the source exists and goes away when you remove it. Watcher (Data API)
+          responses are displayed transiently and not retained beyond the check you are looking at;
+          lumen additionally persists the video IDs you explicitly mark seen, a baseline flag and
+          check timestamps. All of that is source bookkeeping — your notes, decks and reading
+          progress are separate user-created data and are never touched or deleted by source
+          operations. All network checks are user-initiated; nothing polls in the background.
         </p>
       </section>
     </div>

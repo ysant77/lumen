@@ -152,19 +152,26 @@ export type CheckPlan =
       migratedFromPartial: boolean
     }
   | { action: 'diff'; newVideos: PlaylistVideo[] }
+  /** the fetch was truncated by the budget: a COMPLETE baseline cannot be claimed */
+  | { action: 'no-baseline-incomplete' }
 
 /**
  * Decide what a check means for this source. `baselinedAt` marks a COMPLETE
- * baseline; empty playlists baseline correctly to an empty ack list (their
- * first upload is then reported as new). Sources created before full
- * pagination existed carry a partial seen-list without `baselinedAt` — those
- * are re-baselined once (no false "new" flood) and watch cleanly afterwards.
+ * baseline and may only ever be set from a COMPLETE (non-truncated) fetch;
+ * empty playlists baseline correctly to an empty ack list (their first upload
+ * is then reported as new). Sources created before full pagination existed
+ * carry a partial seen-list without `baselinedAt` — those are re-baselined
+ * once (no false "new" flood) and watch cleanly afterwards. Once baselined,
+ * diffing an incomplete fetch is still valid for the fetched portion (the UI
+ * flags that entries may be missing).
  */
 export function planCheck(
   source: Pick<LearningSource, 'seenVideoIds' | 'baselinedAt'>,
   fetched: PlaylistVideo[],
+  incomplete: boolean,
 ): CheckPlan {
   if (!source.baselinedAt) {
+    if (incomplete) return { action: 'no-baseline-incomplete' }
     return {
       action: 'baseline',
       ackIds: fetched.map((v) => v.videoId),

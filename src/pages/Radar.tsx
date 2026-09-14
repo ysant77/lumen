@@ -133,6 +133,10 @@ export default function Radar() {
   const [refPreview, setRefPreview] = useState<RadarPaper | null>(null)
   const [refMessage, setRefMessage] = useState<string | null>(null)
   const [manual, setManual] = useState<{ title: string; url: string; year: string; authors: string } | null>(null)
+  // the LIVE input value for invalidating in-flight lookups (a closure over
+  // refInput would only ever see the render-time value it was captured with)
+  const refInputLive = useRef(refInput)
+  refInputLive.current = refInput
 
   const active = adhoc ?? topics.find((t) => t.id === activeId) ?? topics[0]
   const addedIds = useMemo(() => new Set(customItems.map((i) => i.id)), [customItems])
@@ -187,34 +191,40 @@ export default function Radar() {
 
   const lookupRef = async () => {
     const seq = ++lookupSeq.current
-    const requestedInput = refInput.trim()
+    const requestedInput = refInputLive.current.trim()
     setRefMessage(null)
     setRefPreview(null)
     setManual(null)
     const ref = parseRef(requestedInput)
     if (!ref) {
-      // not an arXiv/DOI reference: offer manual entry (books, sites, reports)
+      // not an arXiv/DOI reference: offer manual entry (books, sites, reports).
+      // seq was already bumped, so any still-pending lookup is invalidated —
+      // clear its busy state here instead of leaving the spinner stuck.
+      setRefBusy(false)
       setManual({ title: '', url: /^https?:\/\//.test(requestedInput) ? requestedInput : '', year: '', authors: '' })
       setRefMessage('Not an arXiv/DOI reference — add it manually below (works for books too).')
       return
     }
     const prefillUrl = ref.kind === 'arxiv' ? `https://arxiv.org/abs/${ref.value}` : `https://doi.org/${ref.value}`
+    /** obsolete = a newer lookup started, or the input no longer matches this request */
+    const obsolete = () => seq !== lookupSeq.current || refInputLive.current.trim() !== requestedInput
     setRefBusy(true)
     try {
       const paper = await resolveRef(ref)
-      // obsolete responses (newer lookup started, or the input changed) are dropped
-      if (seq !== lookupSeq.current || refInput.trim() !== requestedInput) return
+      if (obsolete()) return
       if (paper) setRefPreview(paper)
       else {
         setManual({ title: '', url: prefillUrl, year: '', authors: '' })
         setRefMessage('Reference not found in OpenAlex yet — you can still add it manually.')
       }
     } catch (e: any) {
-      if (seq !== lookupSeq.current || refInput.trim() !== requestedInput) return
+      if (obsolete()) return
       // a FAILED lookup also deserves the manual path, not a dead end
       setManual({ title: '', url: prefillUrl, year: '', authors: '' })
       setRefMessage(`Lookup failed (${e?.message ?? e}) — you can add it manually below.`)
     } finally {
+      // clear busy for the newest request, or when the input drifted away
+      // from what this (still-newest) request was asked to resolve
       if (seq === lookupSeq.current) setRefBusy(false)
     }
   }
