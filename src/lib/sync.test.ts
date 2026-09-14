@@ -1,13 +1,18 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Doc, SyncConfig } from '../types'
 
-vi.mock('./github', () => ({
-  fetchHead: vi.fn(),
-  fetchBlobText: vi.fn(),
-  pushFiles: vi.fn(),
-}))
+vi.mock('./github', () => {
+  class GitHubError extends Error {
+    status: number
+    constructor(status: number, message: string) {
+      super(message)
+      this.status = status
+    }
+  }
+  return { fetchHead: vi.fn(), fetchBlobText: vi.fn(), pushFiles: vi.fn(), GitHubError }
+})
 
-import { fetchBlobText, fetchHead, pushFiles } from './github'
+import { GitHubError, fetchBlobText, fetchHead, pushFiles } from './github'
 import { runSync, __test__, type SyncStore } from './sync'
 
 const cfg: SyncConfig = { owner: 'o', repo: 'r', branch: 'main', token: 't', auto: true }
@@ -188,7 +193,7 @@ describe('runSync — multi-device behaviour', () => {
       .mockResolvedValueOnce({ commitSha: 'c1', treeSha: 't1', files: [] })
       .mockResolvedValueOnce({ commitSha: 'c2', treeSha: 't2', files: [] })
     vi.mocked(pushFiles)
-      .mockRejectedValueOnce(new Error('Update is not a fast forward'))
+      .mockRejectedValueOnce(new GitHubError(422, '422: Update is not a fast forward'))
       .mockResolvedValueOnce({ commitSha: 'c3', blobShas: new Map([['sessions.json', 's']]) })
     const { store } = makeStore([
       { path: 'sessions.json', content: '{}', updatedAt: 1, dirty: true, remoteSha: null },
@@ -196,5 +201,47 @@ describe('runSync — multi-device behaviour', () => {
     const report = await runSync(cfg, store)
     expect(report.pushed).toBe(1)
     expect(pushFiles).toHaveBeenCalledTimes(2)
+  })
+})
+
+describe('REGRESSION: stale-head 422 ref races (sync error + console spam)', () => {
+  beforeEach(() => {
+    vi.mocked(fetchHead).mockReset()
+    vi.mocked(pushFiles).mockReset()
+    vi.mocked(fetchBlobText).mockReset()
+  })
+  const headA = { commitSha: 'A', treeSha: 'tA', files: [] }
+  const headB = { commitSha: 'B', treeSha: 'tB', files: [] }
+  const dirtyDoc: Doc = {
+    path: 'progress.json',
+    content: j({ version: 1, items: {} }),
+    updatedAt: 111,
+    dirty: true,
+    remoteSha: null,
+  }
+
+  it('a non-fast-forward push retries exactly once against a REFRESHED head', async () => {
+    const { store, docs } = makeStore([dirtyDoc])
+    vi.mocked(fetchHead).mockResolvedValueOnce(headA).mockResolvedValueOnce(headB)
+    vi.mocked(pushFiles)
+      .mockRejectedValueOnce(new GitHubError(422, '422: Update is not a fast forward'))
+      .mockResolvedValueOnce({ commitSha: 'C', blobShas: new Map([['progress.json', 'blob1']]) })
+
+    const report = await runSync(cfg, store)
+
+    expect(report.pushed).toBe(1)
+    expect(vi.mocked(pushFiles)).toHaveBeenCalledTimes(2)
+    // the retry MUST use the freshly fetched head, not the stale one
+    expect(vi.mocked(pushFiles).mock.calls[1][3]).toEqual(headB)
+    expect(vi.mocked(fetchHead)).toHaveBeenCalledTimes(2)
+    expect(docs.get('progress.json')!.dirty).toBe(false)
+  })
+
+  it('non-race failures surface immediately with their message (no blind retry)', async () => {
+    const { store } = makeStore([dirtyDoc])
+    vi.mocked(fetchHead).mockResolvedValue(headA)
+    vi.mocked(pushFiles).mockRejectedValue(new GitHubError(401, '401: Bad credentials'))
+    await expect(runSync(cfg, store)).rejects.toThrow(/Bad credentials/)
+    expect(vi.mocked(pushFiles)).toHaveBeenCalledTimes(1)
   })
 })

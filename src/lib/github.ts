@@ -13,6 +13,9 @@ export class GitHubError extends Error {
 async function gh<T>(cfg: SyncConfig, method: string, path: string, body?: unknown): Promise<T> {
   const res = await fetch(`${API}${path}`, {
     method,
+    // GitHub sends Cache-Control: max-age=60; a cached branch head makes the
+    // next push commit on a stale parent and fail with 422 non-fast-forward
+    cache: 'no-store',
     headers: {
       Authorization: `Bearer ${cfg.token}`,
       Accept: 'application/vnd.github+json',

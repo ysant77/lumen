@@ -1,5 +1,5 @@
 import type { Doc, SyncConfig, SyncReport } from '../types'
-import { fetchBlobText, fetchHead, pushFiles, type RemoteHead } from './github'
+import { GitHubError, fetchBlobText, fetchHead, pushFiles, type RemoteHead } from './github'
 import { mergeDocs } from './merge'
 
 const CONFIG_KEY = 'lumen.sync.config'
@@ -103,8 +103,10 @@ export async function runSync(cfg: SyncConfig, store: SyncStore): Promise<SyncRe
     let pushed
     try {
       pushed = await pushFiles(cfg, files, message, head)
-    } catch {
-      // ref moved between pull and push (another device racing); refresh head and retry once
+    } catch (e) {
+      // retry once ONLY for ref races (head moved between pull and push);
+      // other failures surface with GitHub's own message
+      if (!(e instanceof GitHubError && (e.status === 422 || e.status === 409))) throw e
       head = await fetchHead(cfg)
       pushed = await pushFiles(cfg, files, message, head)
     }

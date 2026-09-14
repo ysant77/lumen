@@ -449,7 +449,13 @@ export const useData = create<DataState>((set, get) => {
             }
           },
         }
-        const report = await runSync(cfg, adapter)
+        // single writer per browser profile: two windows/tabs must not race
+        // the push (stale-parent 422s); Web Locks serializes them
+        const run = () => runSync(cfg, adapter)
+        const report =
+          typeof navigator !== 'undefined' && 'locks' in navigator
+            ? await navigator.locks.request('lumen-sync', run)
+            : await run()
         set({ lastSync: report, syncing: false })
         return report
       } catch (e: any) {
