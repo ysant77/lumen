@@ -4,7 +4,7 @@ import { mergeDocs } from './merge'
 
 const CONFIG_KEY = 'lumen.sync.config'
 const TRACKED =
-  /^(progress\.json|sessions\.json|custom\.json|radar\.json|queue\.json|notes\/.+\.md|code\/.+\.json|decks\/.+\.json|experiments\/.+\.json)$/
+  /^(progress\.json|sessions\.json|custom\.json|radar\.json|queue\.json|sources\.json|notes\/.+\.md|code\/.+\.json|decks\/.+\.json|experiments\/.+\.json)$/
 
 export function getSyncConfig(): SyncConfig | null {
   try {

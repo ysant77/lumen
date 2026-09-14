@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import type { CustomItem, RadarPaper, RadarTopic } from '../types'
 import { arxivPdfUrl, searchTopic } from '../lib/radar'
+import { parseRef, resolveRef } from '../lib/lookup'
 import { writePdf } from '../lib/opfs'
 import { useData } from '../store/data'
 import { Button, Chip, EmptyState, Icon, Spinner, cn } from '../components/ui'
@@ -117,20 +118,33 @@ export default function Radar() {
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState({ label: '', query: '', days: 60 })
 
-  const active = topics.find((t) => t.id === activeId) ?? topics[0]
+  // ad-hoc research (one-off search, not saved unless the user says so)
+  const [adhocInput, setAdhocInput] = useState('')
+  const [adhoc, setAdhoc] = useState<RadarTopic | null>(null)
+
+  // add a specific paper/book
+  const [refInput, setRefInput] = useState('')
+  const [refBusy, setRefBusy] = useState(false)
+  const [refPreview, setRefPreview] = useState<RadarPaper | null>(null)
+  const [refMessage, setRefMessage] = useState<string | null>(null)
+  const [manual, setManual] = useState<{ title: string; url: string; year: string; authors: string } | null>(null)
+
+  const active = adhoc ?? topics.find((t) => t.id === activeId) ?? topics[0]
   const addedIds = useMemo(() => new Set(customItems.map((i) => i.id)), [customItems])
 
   const load = useCallback(
-    async (topic: RadarTopic) => {
+    async (topic: RadarTopic, persistCheck = true) => {
       setLoading(true)
       setError(null)
-      setNewSince(topic.lastChecked ?? null)
+      setNewSince(persistCheck ? (topic.lastChecked ?? null) : null)
       try {
         setPapers(await searchTopic(topic))
-        const now = new Date().toISOString()
-        saveRadarTopics(
-          useData.getState().radarTopics.map((t) => (t.id === topic.id ? { ...t, lastChecked: now } : t)),
-        )
+        if (persistCheck) {
+          const now = new Date().toISOString()
+          saveRadarTopics(
+            useData.getState().radarTopics.map((t) => (t.id === topic.id ? { ...t, lastChecked: now } : t)),
+          )
+        }
       } catch (e: any) {
         setError(e?.message ?? String(e))
         setPapers([])
@@ -142,9 +156,85 @@ export default function Radar() {
   )
 
   useEffect(() => {
-    if (active) void load(active)
+    if (!adhoc && active) void load(active)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeId])
+
+  const runAdhoc = () => {
+    const q = adhocInput.trim()
+    if (!q) return
+    const topic: RadarTopic = { id: 'adhoc', label: q, query: q, days: 365 }
+    setAdhoc(topic)
+    void load(topic, false)
+  }
+
+  const saveAdhocAsTopic = () => {
+    if (!adhoc) return
+    const t: RadarTopic = { ...adhoc, id: slugify(adhoc.query) || crypto.randomUUID().slice(0, 8), days: 90 }
+    if (!topics.some((x) => x.id === t.id)) saveRadarTopics([...topics, t])
+    setAdhoc(null)
+    setActiveId(t.id)
+  }
+
+  const lookupRef = async () => {
+    setRefMessage(null)
+    setRefPreview(null)
+    setManual(null)
+    const ref = parseRef(refInput)
+    if (!ref) {
+      // not an arXiv/DOI reference: offer manual entry (books, sites, reports)
+      setManual({ title: '', url: /^https?:\/\//.test(refInput.trim()) ? refInput.trim() : '', year: '', authors: '' })
+      setRefMessage('Not an arXiv/DOI reference — add it manually below (works for books too).')
+      return
+    }
+    setRefBusy(true)
+    try {
+      const paper = await resolveRef(ref)
+      if (paper) setRefPreview(paper)
+      else {
+        setManual({
+          title: '',
+          url: ref.kind === 'arxiv' ? `https://arxiv.org/abs/${ref.value}` : `https://doi.org/${ref.value}`,
+          year: '',
+          authors: '',
+        })
+        setRefMessage('Reference not found in OpenAlex yet — you can still add it manually.')
+      }
+    } catch (e: any) {
+      setRefMessage(`Lookup failed: ${e?.message ?? e}`)
+    } finally {
+      setRefBusy(false)
+    }
+  }
+
+  const addManual = () => {
+    if (!manual || !manual.title.trim()) return
+    const now = new Date().toISOString()
+    const arxivFromUrl = /arxiv\.org\/(?:abs|pdf)\/(\d{4}\.\d{4,5})/.exec(manual.url)
+    const id = `x-${arxivFromUrl?.[1] ?? slugify(manual.title) ?? crypto.randomUUID().slice(0, 8)}`
+    addCustomItem({
+      id,
+      order: customItems.length + 1,
+      phase: 'Inbox',
+      shortName: manual.title.split(':')[0].slice(0, 40),
+      title: manual.title.trim(),
+      year: manual.year || '',
+      authors: manual.authors || null,
+      priority: null,
+      difficulty: null,
+      why: null,
+      exercise: null,
+      pageUrl: manual.url || null,
+      pdfUrl: arxivFromUrl ? arxivPdfUrl(arxivFromUrl[1]) : null,
+      pdfFile: arxivFromUrl ? `arxiv-${arxivFromUrl[1]}.pdf` : null,
+      pdfDir: null,
+      addedAt: now,
+      source: 'manual',
+    })
+    setManual(null)
+    setRefInput('')
+    setRefMessage('Added to your Inbox.')
+  }
 
   const onAdd = async (p: RadarPaper, fetchPdf: boolean) => {
     const item = toCustomItem(p, customItems.length + 1)
@@ -201,11 +291,127 @@ export default function Radar() {
         to read, annotate and drill it like any other paper — arXiv PDFs download automatically.
       </p>
 
+      {/* ---- research a specific topic (one-off) ---- */}
+      <div className="mb-3 flex flex-wrap items-center gap-2">
+        <label className="sr-only" htmlFor="adhoc-q">
+          Research any topic
+        </label>
+        <input
+          id="adhoc-q"
+          value={adhocInput}
+          onChange={(e) => setAdhocInput(e.target.value)}
+          onKeyDown={(e) => e.key === 'Enter' && runAdhoc()}
+          placeholder="Research any topic… (e.g. state space models long context)"
+          className="min-w-56 flex-1 rounded-md border border-neutral-800 bg-neutral-900 px-2.5 py-1.5 text-xs focus:ring-1 focus:ring-amber-500 focus:outline-none"
+        />
+        <Button variant="primary" onClick={runAdhoc} disabled={!adhocInput.trim()}>
+          <Icon name="search" className="h-3.5 w-3.5" /> Search
+        </Button>
+        {adhoc && (
+          <>
+            <Chip className="border-amber-700 text-amber-300">ad-hoc: {adhoc.query.slice(0, 32)}</Chip>
+            <Button variant="ghost" className="px-2 py-1" onClick={saveAdhocAsTopic}>
+              <Icon name="plus" className="h-3 w-3" /> save as topic
+            </Button>
+            <Button
+              variant="ghost"
+              className="px-2 py-1"
+              onClick={() => {
+                setAdhoc(null)
+                const t = topics.find((x) => x.id === activeId) ?? topics[0]
+                if (t) void load(t)
+              }}
+              aria-label="Close ad-hoc search"
+            >
+              <Icon name="x" className="h-3 w-3" />
+            </Button>
+          </>
+        )}
+      </div>
+
+      {/* ---- add a specific paper / book ---- */}
+      <div className="mb-4 rounded-lg border border-neutral-800 p-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <label className="sr-only" htmlFor="ref-input">
+            Add a specific paper or book
+          </label>
+          <input
+            id="ref-input"
+            value={refInput}
+            onChange={(e) => setRefInput(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && void lookupRef()}
+            placeholder="Add a specific paper/book: arXiv ID or URL, DOI, or any title/link…"
+            className="min-w-56 flex-1 rounded-md border border-neutral-800 bg-neutral-900 px-2.5 py-1.5 text-xs focus:ring-1 focus:ring-amber-500 focus:outline-none"
+          />
+          <Button onClick={() => void lookupRef()} disabled={refBusy || !refInput.trim()}>
+            {refBusy ? <Spinner className="h-3.5 w-3.5" /> : <Icon name="plus" className="h-3.5 w-3.5" />} Look up
+          </Button>
+        </div>
+        {refMessage && <p className="mt-2 text-[11px] text-neutral-400">{refMessage}</p>}
+        {refPreview && (
+          <div className="mt-2 flex items-start gap-2 rounded-md border border-neutral-800 bg-neutral-900/50 p-2">
+            <div className="min-w-0 flex-1">
+              <p className="text-xs font-medium text-neutral-200">{refPreview.title}</p>
+              <p className="mt-0.5 text-[11px] text-neutral-500">
+                {refPreview.authors.slice(0, 4).join(', ')} · {refPreview.date}
+                {refPreview.arxivId && <Chip className="ml-1.5 border-emerald-900 text-emerald-400">arXiv</Chip>}
+              </p>
+            </div>
+            {addedIds.has(`x-${refPreview.arxivId ?? refPreview.id.toLowerCase()}`) ? (
+              <Chip className="border-emerald-800 text-emerald-400">in library</Chip>
+            ) : (
+              <Button
+                variant="primary"
+                onClick={async () => {
+                  await onAdd(refPreview, !!refPreview.arxivId)
+                  setRefPreview(null)
+                  setRefInput('')
+                  setRefMessage('Added to your Inbox.')
+                }}
+              >
+                Add to Inbox
+              </Button>
+            )}
+          </div>
+        )}
+        {manual && (
+          <div className="mt-2 grid gap-2 rounded-md border border-neutral-800 bg-neutral-900/50 p-2 sm:grid-cols-2">
+            <label className="flex flex-col gap-1 text-[11px] text-neutral-400" htmlFor="man-title">
+              Title (required)
+              <input id="man-title" value={manual.title} onChange={(e) => setManual({ ...manual, title: e.target.value })} className="rounded-md border border-neutral-800 bg-neutral-900 px-2 py-1.5 text-xs focus:ring-1 focus:ring-amber-500 focus:outline-none" />
+            </label>
+            <label className="flex flex-col gap-1 text-[11px] text-neutral-400" htmlFor="man-url">
+              Link (book page, arXiv, publisher…)
+              <input id="man-url" value={manual.url} onChange={(e) => setManual({ ...manual, url: e.target.value })} className="rounded-md border border-neutral-800 bg-neutral-900 px-2 py-1.5 text-xs focus:ring-1 focus:ring-amber-500 focus:outline-none" />
+            </label>
+            <label className="flex flex-col gap-1 text-[11px] text-neutral-400" htmlFor="man-authors">
+              Authors
+              <input id="man-authors" value={manual.authors} onChange={(e) => setManual({ ...manual, authors: e.target.value })} className="rounded-md border border-neutral-800 bg-neutral-900 px-2 py-1.5 text-xs focus:ring-1 focus:ring-amber-500 focus:outline-none" />
+            </label>
+            <label className="flex flex-col gap-1 text-[11px] text-neutral-400" htmlFor="man-year">
+              Year
+              <input id="man-year" value={manual.year} onChange={(e) => setManual({ ...manual, year: e.target.value })} className="rounded-md border border-neutral-800 bg-neutral-900 px-2 py-1.5 text-xs focus:ring-1 focus:ring-amber-500 focus:outline-none" />
+            </label>
+            <div className="flex gap-2 sm:col-span-2">
+              <Button variant="primary" onClick={addManual} disabled={!manual.title.trim()}>
+                Add to Inbox
+              </Button>
+              <Button variant="ghost" onClick={() => setManual(null)}>
+                Cancel
+              </Button>
+            </div>
+          </div>
+        )}
+      </div>
+
       <div className="mb-4 flex flex-wrap gap-1.5">
         {topics.map((t) => (
           <span key={t.id} className="inline-flex items-center">
             <button
-              onClick={() => setActiveId(t.id)}
+              onClick={() => {
+                setAdhoc(null)
+                setActiveId(t.id)
+              }}
               className={cn(
                 'rounded-full border px-3 py-1.5 text-xs whitespace-nowrap',
                 t.id === active?.id
@@ -263,7 +469,7 @@ export default function Radar() {
           <span>
             “{active.query}” · last {active.days} days
           </span>
-          <Button variant="ghost" className="ml-auto px-2 py-0.5" onClick={() => void load(active)} disabled={loading}>
+          <Button variant="ghost" className="ml-auto px-2 py-0.5" onClick={() => void load(active, !adhoc)} disabled={loading}>
             {loading ? <Spinner className="h-3 w-3" /> : <Icon name="sync" className="h-3 w-3" />} refresh
           </Button>
         </div>

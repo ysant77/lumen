@@ -85,6 +85,19 @@ describe('mergeDocs — record-level sync merge', () => {
     expect(merged.deleted['x-1']).toBeTruthy()
   })
 
+  it('sources.json merges with tombstones like custom items', () => {
+    const src = { id: 's1', title: 'CS231n', url: 'https://x', addedAt: '2026-09-01T00:00:00Z', updatedAt: '2026-09-01T00:00:00Z' }
+    const res = mergeDocs(
+      'sources.json',
+      j({ version: 1, items: [], deleted: { s1: '2026-09-05T00:00:00Z' } }),
+      j({ version: 1, items: [src], deleted: {} }),
+    )
+    expect(res.kind).toBe('merged')
+    const merged = JSON.parse((res as any).content)
+    expect(merged.items).toHaveLength(0) // deletion (newer) wins across devices
+    expect(merged.deleted['s1']).toBeTruthy()
+  })
+
   it('takes remote when contents are identical', () => {
     expect(mergeDocs('progress.json', j({ items: {} }), j({ items: {} })).kind).toBe('takeRemote')
   })

@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import { zipSync, strToU8 } from 'fflate'
 import type {
   Bookmark,
+  LearningSource,
   Checkpoints,
   CodeSnippet,
   CustomItem,
@@ -37,6 +38,8 @@ interface DataState {
   sessions: FocusSession[]
   customItems: CustomItem[]
   customDeleted: Record<string, string>
+  sources: LearningSource[]
+  sourcesDeleted: Record<string, string>
   radarTopics: RadarTopic[]
   weekQueue: WeekQueue
   experiments: Record<string, ExperimentRecord[]>
@@ -60,6 +63,9 @@ interface DataState {
   addSession(s: FocusSession): void
   addCustomItem(item: CustomItem): void
   removeCustomItem(itemId: string): void
+  addSource(source: LearningSource): void
+  updateSource(source: LearningSource): void
+  removeSource(sourceId: string): void
   saveRadarTopics(topics: RadarTopic[]): void
   setWeekQueue(items: string[]): void
   syncNow(): Promise<SyncReport | null>
@@ -103,6 +109,10 @@ function parseDoc(path: string, content: string, state: Partial<DataState>) {
       state.customDeleted = parsed.deleted ?? {}
     } else if (path === 'radar.json') {
       state.radarTopics = JSON.parse(content).topics ?? []
+    } else if (path === 'sources.json') {
+      const parsed = JSON.parse(content)
+      state.sources = parsed.items ?? []
+      state.sourcesDeleted = parsed.deleted ?? {}
     }
   } catch (e) {
     console.warn(`lumen: could not parse ${path}`, e)
@@ -144,6 +154,11 @@ export const useData = create<DataState>((set, get) => {
     void writeDoc('custom.json', JSON.stringify({ version: 1, items, deleted }, null, 1))
   }
 
+  function persistSources(items: LearningSource[], deleted: Record<string, string>) {
+    set({ sources: items, sourcesDeleted: deleted })
+    void writeDoc('sources.json', JSON.stringify({ version: 1, items, deleted }, null, 1))
+  }
+
   return {
     ready: false,
     progress: {},
@@ -153,6 +168,8 @@ export const useData = create<DataState>((set, get) => {
     sessions: [],
     customItems: [],
     customDeleted: {},
+    sources: [],
+    sourcesDeleted: {},
     radarTopics: DEFAULT_TOPICS,
     weekQueue: { items: [], updatedAt: '' },
     experiments: {},
@@ -206,6 +223,8 @@ export const useData = create<DataState>((set, get) => {
         sessions: parsed.sessions ?? [],
         customItems: parsed.customItems ?? [],
         customDeleted: parsed.customDeleted ?? {},
+        sources: parsed.sources ?? [],
+        sourcesDeleted: parsed.sourcesDeleted ?? {},
         radarTopics: parsed.radarTopics?.length ? parsed.radarTopics : DEFAULT_TOPICS,
         weekQueue: parsed.weekQueue ?? { items: [], updatedAt: '' },
         experiments: parsed.experiments ?? {},
@@ -333,6 +352,28 @@ export const useData = create<DataState>((set, get) => {
       )
     },
 
+    addSource(source) {
+      if (get().sources.some((x) => x.id === source.id)) return
+      const stamped = { ...source, updatedAt: source.updatedAt ?? new Date().toISOString() }
+      const deleted = { ...get().sourcesDeleted }
+      delete deleted[source.id]
+      persistSources([...get().sources, stamped], deleted)
+    },
+
+    updateSource(source) {
+      persistSources(
+        get().sources.map((x) => (x.id === source.id ? { ...source, updatedAt: new Date().toISOString() } : x)),
+        get().sourcesDeleted,
+      )
+    },
+
+    removeSource(sourceId) {
+      persistSources(
+        get().sources.filter((x) => x.id !== sourceId),
+        { ...get().sourcesDeleted, [sourceId]: new Date().toISOString() },
+      )
+    },
+
     saveRadarTopics(topics) {
       const now = new Date().toISOString()
       const prev = new Map(get().radarTopics.map((t) => [t.id, t]))
@@ -423,6 +464,9 @@ export const useData = create<DataState>((set, get) => {
       )
       files['radar.json'] = strToU8(JSON.stringify({ version: 1, topics: s.radarTopics }, null, 1))
       files['queue.json'] = strToU8(JSON.stringify(s.weekQueue, null, 1))
+      files['sources.json'] = strToU8(
+        JSON.stringify({ version: 1, items: s.sources, deleted: s.sourcesDeleted }, null, 1),
+      )
       for (const [id, md] of Object.entries(s.notes)) files[`notes/${id}.md`] = strToU8(md)
       for (const [id, sn] of Object.entries(s.code))
         files[`code/${id}.json`] = strToU8(JSON.stringify({ version: 1, snippets: sn }, null, 1))
@@ -496,6 +540,8 @@ export const useData = create<DataState>((set, get) => {
         sessions: [],
         customItems: [],
         customDeleted: {},
+        sources: [],
+        sourcesDeleted: {},
         radarTopics: DEFAULT_TOPICS,
         weekQueue: { items: [], updatedAt: '' },
         experiments: {},

@@ -11,6 +11,7 @@ progress.json        status / reading position / timestamps per item
 sessions.json        focus-session log
 custom.json          papers you added from Radar (your Inbox)
 radar.json           your Radar topics + last-checked markers
+sources.json         external learning sources (playlists, course sites) + watcher state
 notes/<item>.md      one Markdown file per paper
 code/<item>.json     Python snippets per paper
 decks/<item>.json    flashcards incl. FSRS scheduling state
@@ -51,7 +52,7 @@ Structured docs merge **per record**, so independent changes from two devices bo
 | `progress.json` | per item id | newest `updatedAt` wins per item; unique items union |
 | `sessions.json` | per session id | union (capped at 2000) |
 | `decks/*.json`, `experiments/*.json` | per record id | newest `updatedAt` wins per record; union |
-| `custom.json` | per item id | union + deletion tombstones (removals survive sync) |
+| `custom.json`, `sources.json` | per item id | union + deletion tombstones (removals survive sync) |
 | `radar.json` | per topic id | newest topic wins; `lastChecked` takes the max |
 | `queue.json` | whole doc | last writer wins by `updatedAt` (it's one small ordered list) |
 | `notes/*.md`, `code/*.json` | — | **cannot be merged safely**: local stays live, the remote version is saved as `…​.conflict-<timestamp>` and surfaced in Settings (promote / download / discard). Nothing is silently overwritten. |

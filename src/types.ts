@@ -73,6 +73,23 @@ export interface CustomItem extends CatalogItem {
   source: 'radar' | 'manual'
 }
 
+/** An external learning source (YouTube playlist/video, course site, …). */
+export interface LearningSource {
+  id: string
+  title: string
+  url: string
+  type: 'youtube-playlist' | 'youtube-video' | 'site'
+  provider?: string | null
+  playlistId?: string | null
+  videoId?: string | null
+  notes?: string | null
+  addedAt: string
+  updatedAt?: string
+  /** watcher bookkeeping: set only by explicit user actions */
+  lastChecked?: string | null
+  seenVideoIds?: string[]
+}
+
 // ---------- User data (synced to the private data repo) ----------
 
 export type ItemStatus = 'not-started' | 'reading' | 'implementing' | 'done' | 'skipped'

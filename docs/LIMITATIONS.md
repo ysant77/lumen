@@ -3,20 +3,33 @@
 Honest list, maintained alongside releases. "Tests pass" ≠ production-ready;
 this is a personal tool hardened for one user across a few devices.
 
-## Scope freeze (current)
+## Scope guardrails
 
-Feature development is **frozen**; only reliability/data-safety fixes land.
-Explicitly out of scope for now: quizzes, code challenges, additional
-discovery feeds, and any PageTrace integration.
+Still excluded regardless of other feature work: quizzes, code challenges,
+and any PageTrace integration.
 
-If a PageTrace (or similar) integration is ever added, it must be:
+Third-party integrations must always be (and the YouTube watcher complies):
 
-- **optional** — lumen works fully without it;
-- **explicitly user-initiated** — no background calls, nothing on by default;
-- **upload-safe** — it must never silently upload PDFs or notes; any transfer
-  of content requires a per-action, clearly-labelled user step;
-- **non-blocking** — ordinary reading, notes, progress and review must never
-  depend on the availability of an external answering service.
+- **optional** — lumen works fully without them;
+- **explicitly user-initiated** — no background calls, nothing on by default
+  (the watcher only fetches when you click "Check", embeds only load on tap);
+- **upload-safe** — nothing silently uploads PDFs or notes; any transfer of
+  content requires a per-action, clearly-labelled user step;
+- **non-blocking** — ordinary reading, notes, progress and review never
+  depend on the availability of an external service.
+
+## Sources & watcher
+
+- **YouTube API key is device-local** (localStorage, never synced) and only
+  needed for "check for new lectures" — links and embeds work without it.
+  Create it restricted to the YouTube Data API and your app URL.
+- **oEmbed titles are best-effort**; if YouTube declines the request the
+  source keeps the title you typed (or the raw URL).
+- **First "check" baselines silently**: existing videos count as seen; only
+  later uploads are reported as new. Seen-lists cap at 100 video ids.
+- **No university-site scraping.** Course *websites* are plain links (CORS
+  and ToS make client-side watchers infeasible); lecture watching works via
+  official YouTube playlists instead.
 
 ## Sync & data
 

@@ -96,7 +96,7 @@ function mergeStructured(path: string, local: any, remote: any): unknown | null 
   if (/^experiments\/.+\.json$/.test(path)) {
     return { version: 1, records: unionById<any>(remote.records ?? [], local.records ?? []) }
   }
-  if (path === 'custom.json') {
+  if (path === 'custom.json' || path === 'sources.json') {
     const deleted: Record<string, string> = { ...(remote.deleted ?? {}) }
     for (const [id, when] of Object.entries<string>(local.deleted ?? {})) {
       if (!deleted[id] || ts(when) > ts(deleted[id])) deleted[id] = when

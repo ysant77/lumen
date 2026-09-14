@@ -10,6 +10,7 @@ const NAV = [
   { to: '/review', label: 'Review', icon: 'cards' },
   { to: '/roadmap', label: 'Roadmap', icon: 'book' },
   { to: '/radar', label: 'Radar', icon: 'radar' },
+  { to: '/sources', label: 'Sources', icon: 'play' },
   { to: '/settings', label: 'Settings', icon: 'settings' },
 ]
 

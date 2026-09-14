@@ -11,6 +11,7 @@ const Review = lazy(() => import('./pages/Review'))
 const Settings = lazy(() => import('./pages/Settings'))
 const Radar = lazy(() => import('./pages/Radar'))
 const Roadmap = lazy(() => import('./pages/Roadmap'))
+const Sources = lazy(() => import('./pages/Sources'))
 
 function Fallback() {
   return <div className="flex h-full items-center justify-center text-sm text-neutral-500">loading…</div>
@@ -44,6 +45,7 @@ export default function App() {
             <Route path="review" element={<Review />} />
             <Route path="radar" element={<Radar />} />
             <Route path="roadmap" element={<Roadmap />} />
+            <Route path="sources" element={<Sources />} />
             <Route path="settings" element={<Settings />} />
             <Route path="*" element={<Dashboard />} />
           </Route>

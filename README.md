@@ -26,7 +26,14 @@ that works on iPad, macOS, Windows and Linux.
 - **Radar** — a discovery feed of the latest papers per topic (via OpenAlex), pre-tuned to the
   roadmap's gap areas (multimodal LLMs, retrieval, agents/test-time compute, EO/SAR foundation
   models…). One tap adds a paper to your Inbox with the arXiv PDF fetched straight into local
-  storage — it then behaves like any catalog paper (notes, code, cards, progress).
+  storage — it then behaves like any catalog paper (notes, code, cards, progress). Also: ad-hoc
+  research on any topic (save it as a followed topic if it sticks) and add *specific* papers or
+  books by arXiv ID/URL, DOI, or manual entry.
+- **Sources** — external courses you follow: YouTube playlists/videos (click-to-load,
+  privacy-enhanced embeds) and course sites, with verified official seeds (Stanford CS231n/CS224N/
+  CS25, MIT 6.S191 + OCW 18.06, Harvard CS50 AI, CMU 11-785/10-714, Karpathy). Optional lecture
+  watcher via the official YouTube Data API using your own key (device-local, checks only on
+  click — never in the background).
 - **GitHub sync** — notes, progress, decks, code and sessions serialize to plain
   Markdown/JSON files and sync to a **private GitHub repo you own** via a fine-grained token.
   Batch commits through the Git Data API; conflict policy: per-file last-writer-wins

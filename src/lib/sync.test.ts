@@ -55,6 +55,7 @@ describe('tracked paths', () => {
       'custom.json',
       'radar.json',
       'queue.json',
+      'sources.json',
       'notes/llm-01.md',
       'notes/llm-01.conflict-20260910120000.md',
       'decks/cv-12.json',
