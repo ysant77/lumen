@@ -23,6 +23,7 @@ Local-first PWA. Three storage planes with different lifecycles:
 | `scripts/build_catalog.py` | Regenerates the catalog from the roadmap workbooks |
 | `src/lib/db.ts` | IndexedDB (`idb`): `docs` store — the unit of sync |
 | `src/lib/opfs.ts` + `opfs.worker.ts` | PDF storage; writes via worker sync-access handles (Safari-safe) |
+| `src/lib/pdfRecovery.ts` | Cross-device recovery targets, source lookup, PDF validation and download |
 | `src/lib/github.ts` | Minimal Git Data API client (ref → tree → blobs; batch commit) |
 | `src/lib/sync.ts` | Pull/merge/push engine + conflict policy (see SYNC.md) |
 | `src/lib/srs.ts` | ts-fsrs wrapper; serialized scheduling state on each card |
@@ -42,6 +43,9 @@ Local-first PWA. Three storage planes with different lifecycles:
 - **OPFS writes in a worker.** `createSyncAccessHandle()` works in workers across
   Safari/Chrome/Firefox, avoiding the patchier main-thread `createWritable()` on iPadOS.
   Reads use plain `getFile()` on the main thread.
+- **PDFs are rebuildable cache, not sync state.** `custom.json` carries canonical source metadata.
+  A new device can batch-restore arXiv and AlphaXiv PDFs into OPFS after sync without committing
+  large binary history to the data repo. Automatic recovery is opt-in and stored per device.
 - **Pyodide in a worker, loaded from CDN.** Keeps the ~15 MB runtime out of the bundle and
   off the UI thread; the service worker runtime-caches it (CacheFirst) for offline use.
   No SharedArrayBuffer (GH Pages lacks COOP/COEP), so cancellation = worker restart.

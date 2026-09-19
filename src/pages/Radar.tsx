@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom'
 import type { CustomItem, RadarPaper, RadarTopic } from '../types'
 import { arxivPdfUrl, searchTopic, type SearchMode } from '../lib/radar'
 import { buildManualItem, findDuplicateByTitle, parseRef, resolveRef } from '../lib/lookup'
-import { writePdf } from '../lib/opfs'
+import { directRecoveryTarget, downloadRecoveryTarget } from '../lib/pdfRecovery'
 import { useData } from '../store/data'
 import { Button, Chip, EmptyState, Icon, Spinner, cn } from '../components/ui'
 
@@ -256,12 +256,9 @@ export default function Radar() {
     if (!addCustomItem(item)) return false
     if (fetchPdf && item.pdfFile && item.pdfUrl) {
       try {
-        const res = await fetch(item.pdfUrl)
-        const buf = await res.arrayBuffer()
-        if (res.ok && new Uint8Array(buf.slice(0, 5)).every((b, i) => b === '%PDF-'.charCodeAt(i))) {
-          await writePdf(item.pdfFile, buf)
-          await refreshPdfList()
-        }
+        const target = directRecoveryTarget(item)
+        if (target) await downloadRecoveryTarget(target)
+        await refreshPdfList()
       } catch {
         /* PDF fetch is best-effort; reader offers a retry */
       }

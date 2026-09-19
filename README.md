@@ -38,6 +38,9 @@ that works on iPad, macOS, Windows and Linux.
   Markdown/JSON files and sync to a **private GitHub repo you own** via a fine-grained token.
   Batch commits through the Git Data API; conflict policy: per-file last-writer-wins
   (dirty local edits always survive). Your token never leaves the device.
+- **Cross-device PDF recovery** — after metadata sync, restore missing Radar, arXiv and
+  AlphaXiv Inbox PDFs into the current device in one batch. Optional per-device auto-recovery
+  runs after sync; the large binary files never bloat the data repo.
 - **PWA** — installable, offline-capable (service worker precaches the app; Pyodide is
   runtime-cached after first use).
 
@@ -46,7 +49,7 @@ that works on iPad, macOS, Windows and Linux.
 | Data | Where it lives |
 |---|---|
 | App code | Public (this repo, GitHub Pages) |
-| Paper PDFs | Your device only (OPFS) — never uploaded |
+| Paper PDFs | Your device only (OPFS) — never uploaded; source-backed Inbox PDFs can be rebuilt |
 | Notes / progress / decks | Your device + *your* private data repo |
 | GitHub token | `localStorage` on your device only |
 
@@ -80,8 +83,8 @@ pip install requests
 python scripts/acquire_pdfs.py --out AI_papers --zip   # --skip-books for papers only
 ```
 
-Then import the resulting folder/zip in the app (Settings → PDF library). Individual arXiv
-papers can also be fetched per-paper from inside the reader ("Fetch from arXiv").
+Then import the resulting folder/zip in the app (Settings → PDF library). Synced Inbox papers
+can be restored in one batch there, or individually from inside the reader ("Fetch from source").
 
 ## Bring your own catalog
 
