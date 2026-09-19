@@ -18,7 +18,8 @@ decks/<item>.json    flashcards incl. FSRS scheduling state
 ```
 
 Everything is human-readable in the repo — your notes remain useful even without lumen.
-PDFs and the GitHub token are **never** synced.
+PDF binaries and the GitHub token are **never** synced. `custom.json` does carry the source URL
+and stable local filename, so source-backed Inbox PDFs can be rebuilt on another device.
 
 ## One-time setup
 
@@ -32,6 +33,18 @@ PDFs and the GitHub token are **never** synced.
    *Test connection* → *Sync now*.
 4. Repeat step 3 on each device (same repo + token, or one token per device if you prefer
    revocability).
+
+## Restore Inbox PDFs on another device
+
+1. Sync the new device so its Inbox is populated from `custom.json`.
+2. Open **Settings → PDF library** and choose **Download missing synced PDFs**.
+3. Optionally enable **Automatically restore missing synced PDFs after sync** on that device.
+
+Recovery runs sequentially to keep memory use bounded on iPad. It supports normal Radar/arXiv
+papers and older AlphaXiv links, validates the PDF signature before writing, and stores the files
+in OPFS for offline reading. Entries without a verified source remain available as metadata and
+can still use **Attach a PDF from this device**. The original seed catalog remains a separate
+one-time folder/ZIP import.
 
 ## How it works
 

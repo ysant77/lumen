@@ -11,6 +11,7 @@ import type {
   Flashcard,
   FocusSession,
   ItemStatus,
+  PdfRecoveryState,
   ProgressEntry,
   RadarTopic,
   ReadDepth,
@@ -19,6 +20,14 @@ import type {
 } from '../types'
 import { clearAllDocs, deleteDoc, getAllDocs, getDoc, putDoc } from '../lib/db'
 import { listPdfs } from '../lib/opfs'
+import {
+  directRecoveryTarget,
+  downloadRecoveryTarget,
+  enrichWithRecoveryTarget,
+  getPdfAutoRecovery,
+  mayHaveRecoverablePdf,
+  resolveRecoveryTarget,
+} from '../lib/pdfRecovery'
 import { DEFAULT_TOPICS } from '../lib/radar'
 import { getSyncConfig, runSync, type SyncStore } from '../lib/sync'
 import { validateBackup, type BackupSummary } from '../lib/backup'
@@ -44,6 +53,7 @@ interface DataState {
   weekQueue: WeekQueue
   experiments: Record<string, ExperimentRecord[]>
   pdfsAvailable: Set<string>
+  pdfRecovery: PdfRecoveryState
   /** paths saved locally but not yet confirmed in the data repo */
   dirtyPaths: string[]
   syncing: boolean
@@ -51,6 +61,7 @@ interface DataState {
 
   init(): Promise<void>
   refreshPdfList(): Promise<void>
+  recoverMissingPdfs(): Promise<PdfRecoveryState>
   setStatus(itemId: string, status: ItemStatus): void
   setReadingPosition(itemId: string, page: number, total: number): void
   setDepth(itemId: string, depth: ReadDepth | undefined): void
@@ -81,6 +92,17 @@ interface DataState {
 
 let autoSyncTimer: ReturnType<typeof setTimeout> | null = null
 let onlineListenerInstalled = false
+let activePdfRecovery: Promise<PdfRecoveryState> | null = null
+
+const EMPTY_PDF_RECOVERY: PdfRecoveryState = {
+  running: false,
+  total: 0,
+  done: 0,
+  downloaded: 0,
+  unavailable: 0,
+  failed: 0,
+  current: '',
+}
 
 /** Parse a synced doc into partial zustand state (used on load and remote pull). */
 function parseDoc(path: string, content: string, state: Partial<DataState>) {
@@ -176,6 +198,7 @@ export const useData = create<DataState>((set, get) => {
     weekQueue: { items: [], updatedAt: '' },
     experiments: {},
     pdfsAvailable: new Set(),
+    pdfRecovery: EMPTY_PDF_RECOVERY,
     dirtyPaths: [],
     syncing: false,
     lastSync: null,
@@ -240,11 +263,77 @@ export const useData = create<DataState>((set, get) => {
           if (get().dirtyPaths.length > 0 && getSyncConfig()) void get().syncNow()
         })
       }
-      if (getSyncConfig()?.auto && navigator.onLine) void get().syncNow()
+      const syncConfig = getSyncConfig()
+      if (syncConfig?.auto && navigator.onLine) void get().syncNow()
+      else if (getPdfAutoRecovery() && navigator.onLine) void get().recoverMissingPdfs()
     },
 
     async refreshPdfList() {
       set({ pdfsAvailable: await listPdfs() })
+    },
+
+    async recoverMissingPdfs() {
+      if (activePdfRecovery) return activePdfRecovery
+      activePdfRecovery = (async () => {
+        const start = get()
+        const candidates = start.customItems.filter((item) => {
+          if (item.pdfFile && start.pdfsAvailable.has(item.pdfFile)) return false
+          const direct = directRecoveryTarget(item)
+          return direct ? !start.pdfsAvailable.has(direct.pdfFile) : mayHaveRecoverablePdf(item)
+        })
+        const state: PdfRecoveryState = {
+          ...EMPTY_PDF_RECOVERY,
+          running: true,
+          total: candidates.length,
+        }
+        set({ pdfRecovery: state })
+        const available = new Set(start.pdfsAvailable)
+        const enrichments = new Map<string, Awaited<ReturnType<typeof resolveRecoveryTarget>>>()
+
+        for (const item of candidates) {
+          state.current = item.title
+          set({ pdfRecovery: { ...state } })
+          try {
+            const target = await resolveRecoveryTarget(item)
+            if (!target) {
+              state.unavailable++
+            } else {
+              enrichments.set(item.id, target)
+              if (!available.has(target.pdfFile)) {
+                await downloadRecoveryTarget(target)
+                available.add(target.pdfFile)
+                state.downloaded++
+              }
+            }
+          } catch (error: any) {
+            state.failed++
+            state.lastError = `${item.title}: ${error?.message ?? String(error)}`
+          }
+          state.done++
+          set({ pdfRecovery: { ...state }, pdfsAvailable: new Set(available) })
+        }
+
+        if (enrichments.size > 0) {
+          const latest = get()
+          const items = latest.customItems.map((item) => {
+            const target = enrichments.get(item.id)
+            return target ? enrichWithRecoveryTarget(item, target) : item
+          })
+          if (items.some((item, index) => item !== latest.customItems[index])) {
+            persistCustom(items, latest.customDeleted)
+          }
+        }
+        await get().refreshPdfList()
+        state.running = false
+        state.current = ''
+        set({ pdfRecovery: { ...state } })
+        return { ...state }
+      })()
+      try {
+        return await activePdfRecovery
+      } finally {
+        activePdfRecovery = null
+      }
     },
 
     setStatus(itemId, status) {
@@ -457,6 +546,9 @@ export const useData = create<DataState>((set, get) => {
             ? await navigator.locks.request('lumen-sync', run)
             : await run()
         set({ lastSync: report, syncing: false })
+        if (!report.error && getPdfAutoRecovery() && navigator.onLine) {
+          void get().recoverMissingPdfs()
+        }
         return report
       } catch (e: any) {
         const report: SyncReport = {
@@ -563,6 +655,7 @@ export const useData = create<DataState>((set, get) => {
         radarTopics: DEFAULT_TOPICS,
         weekQueue: { items: [], updatedAt: '' },
         experiments: {},
+        pdfRecovery: EMPTY_PDF_RECOVERY,
         dirtyPaths: [],
         lastSync: null,
       })

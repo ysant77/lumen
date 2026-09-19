@@ -212,3 +212,14 @@ export interface SyncReport {
   at: string
   error?: string
 }
+
+export interface PdfRecoveryState {
+  running: boolean
+  total: number
+  done: number
+  downloaded: number
+  unavailable: number
+  failed: number
+  current: string
+  lastError?: string
+}

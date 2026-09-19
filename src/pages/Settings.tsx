@@ -4,6 +4,12 @@ import { allItems } from '../lib/catalog'
 import { getSyncConfig, setSyncConfig } from '../lib/sync'
 import { testConnection } from '../lib/github'
 import { validateBackup, type BackupSummary } from '../lib/backup'
+import {
+  directRecoveryTarget,
+  getPdfAutoRecovery,
+  mayHaveRecoverablePdf,
+  setPdfAutoRecovery,
+} from '../lib/pdfRecovery'
 import type { Doc } from '../types'
 import {
   clearPdfs,
@@ -148,9 +154,12 @@ function PdfSection() {
   const refreshPdfList = useData((s) => s.refreshPdfList)
   const available = useData((s) => s.pdfsAvailable)
   const customItems = useData((s) => s.customItems)
+  const recovery = useData((s) => s.pdfRecovery)
+  const recoverMissingPdfs = useData((s) => s.recoverMissingPdfs)
   const [stats, setStats] = useState<ImportStats | null>(null)
   const [usage, setUsage] = useState<{ usage: number; quota: number } | null>(null)
   const [persisted, setPersisted] = useState<boolean | null>(null)
+  const [autoRecover, setAutoRecover] = useState(getPdfAutoRecovery)
   const zipRef = useRef<HTMLInputElement>(null)
   const dirRef = useRef<HTMLInputElement>(null)
   const filesRef = useRef<HTMLInputElement>(null)
@@ -159,6 +168,15 @@ function PdfSection() {
     [...allItems(), ...customItems].map((i) => i.pdfFile).filter(Boolean) as string[],
   )
   const importedCount = [...wanted].filter((w) => available.has(w)).length
+  const recoveryCandidates = customItems.filter((item) => {
+    if (item.pdfFile && available.has(item.pdfFile)) return false
+    const target = directRecoveryTarget(item)
+    return target ? !available.has(target.pdfFile) : mayHaveRecoverablePdf(item)
+  })
+  const customLocalCount = customItems.filter((item) => {
+    const file = directRecoveryTarget(item)?.pdfFile ?? item.pdfFile
+    return !!file && available.has(file)
+  }).length
 
   useEffect(() => {
     void storageEstimate().then(setUsage)
@@ -260,7 +278,7 @@ function PdfSection() {
   }
 
   return (
-    <Section title="PDF library (stored on this device only)">
+    <Section title="PDF library">
       <div className="mb-3 flex flex-wrap items-center gap-2">
         <Chip className={importedCount === wanted.size ? 'border-emerald-700 text-emerald-400' : 'border-amber-800 text-amber-400'}>
           {importedCount}/{wanted.size} PDFs imported
@@ -272,6 +290,63 @@ function PdfSection() {
           </Chip>
         )}
         {persisted != null && <Chip>{persisted ? 'storage persisted' : 'persistence denied'}</Chip>}
+      </div>
+
+      <div className="mb-4 rounded-lg border border-neutral-800 bg-neutral-900/50 p-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <Chip className={customLocalCount === customItems.length ? 'border-emerald-700 text-emerald-400' : undefined}>
+            {customLocalCount}/{customItems.length} synced additions on this device
+          </Chip>
+          <Chip>{recoveryCandidates.length} recoverable or discoverable</Chip>
+          <Button
+            variant="primary"
+            onClick={() => void recoverMissingPdfs()}
+            disabled={recovery.running || recoveryCandidates.length === 0}
+          >
+            {recovery.running ? <Spinner className="h-3.5 w-3.5" /> : <Icon name="download" className="h-3.5 w-3.5" />}
+            Download missing synced PDFs
+          </Button>
+        </div>
+        <p className="mt-2 text-[11px] leading-relaxed text-neutral-500">
+          Restores Radar and arXiv-backed Inbox papers from their original source. PDF binaries
+          remain local to this device; GitHub sync carries the metadata needed to rebuild them.
+          Older AlphaXiv links are normalized to their portable PDF asset automatically.
+        </p>
+        <label className="mt-2 flex items-start gap-2 text-[11px] text-neutral-400">
+          <input
+            type="checkbox"
+            checked={autoRecover}
+            onChange={(event) => {
+              const enabled = event.target.checked
+              setAutoRecover(enabled)
+              setPdfAutoRecovery(enabled)
+              if (enabled && navigator.onLine) void recoverMissingPdfs()
+            }}
+            className="mt-0.5 accent-amber-500"
+          />
+          Automatically restore missing synced PDFs after sync on this device. Leave off on a
+          metered connection; this preference is intentionally per-device.
+        </label>
+        {(recovery.running || recovery.done > 0) && (
+          <div className="mt-2 text-[11px] text-neutral-400">
+            {recovery.running ? (
+              <>
+                Restoring {recovery.done}/{recovery.total}
+                {recovery.current && <span className="text-neutral-600"> · {recovery.current}</span>}
+                <ProgressBar value={recovery.done} max={Math.max(1, recovery.total)} className="mt-1.5" />
+              </>
+            ) : (
+              <span className={recovery.failed ? 'text-amber-400' : 'text-emerald-400'}>
+                Recovery finished: {recovery.downloaded} downloaded
+                {recovery.unavailable ? ` · ${recovery.unavailable} without a verified arXiv copy` : ''}
+                {recovery.failed ? ` · ${recovery.failed} failed` : ''}
+              </span>
+            )}
+            {recovery.lastError && !recovery.running && (
+              <p className="mt-1 text-red-400">Last error: {recovery.lastError}</p>
+            )}
+          </div>
+        )}
       </div>
 
       <p className="mb-3 text-[11px] leading-relaxed text-neutral-500">

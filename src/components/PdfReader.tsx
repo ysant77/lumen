@@ -3,17 +3,11 @@ import * as pdfjs from 'pdfjs-dist'
 import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
 import type { PDFDocumentProxy, PDFPageProxy } from 'pdfjs-dist'
 import { readPdf, writePdf } from '../lib/opfs'
+import { fetchablePdfUrl } from '../lib/pdfRecovery'
 import { pageFromScroll, scrollTopForPage } from '../lib/readerMath'
 import { useData } from '../store/data'
 import { Button, EmptyState, Icon, Spinner, cn } from './ui'
 import { Link } from 'react-router-dom'
-
-/** Direct-download URL when the source allows browser fetches (arXiv serves CORS). */
-function fetchableUrl(pdfUrl: string | null | undefined): string | null {
-  if (!pdfUrl) return null
-  const m = /arxiv\.org\/(?:abs|pdf)\/(\d{4}\.\d{4,5})/.exec(pdfUrl)
-  return m ? `https://arxiv.org/pdf/${m[1]}` : null
-}
 
 pdfjs.GlobalWorkerOptions.workerSrc = workerUrl
 
@@ -231,7 +225,7 @@ export default function PdfReader({
   }, [pdfFile, reloadTick])
 
   const fetchFromSource = useCallback(async () => {
-    const url = fetchableUrl(pdfUrl)
+    const url = fetchablePdfUrl(pdfUrl)
     if (!url || !pdfFile) return
     setFetching(true)
     setFetchError(null)
@@ -431,7 +425,7 @@ export default function PdfReader({
   const pages = useMemo(() => Array.from({ length: pageSizes.length }, (_, i) => i + 1), [pageSizes.length])
 
   if (state === 'missing') {
-    const canFetch = !!fetchableUrl(pdfUrl) && !!pdfFile
+    const canFetch = !!fetchablePdfUrl(pdfUrl) && !!pdfFile
     return (
       <div className="p-4">
         <EmptyState title="PDF not on this device yet">
@@ -439,7 +433,7 @@ export default function PdfReader({
             <div className="mb-3 flex flex-col items-center gap-1.5">
               <Button variant="primary" onClick={() => void fetchFromSource()} disabled={fetching}>
                 {fetching ? <Spinner className="h-3.5 w-3.5" /> : <Icon name="download" className="h-3.5 w-3.5" />}
-                Fetch from arXiv
+                Fetch from source
               </Button>
               {fetchError && <span className="text-red-400">failed: {fetchError}</span>}
             </div>
