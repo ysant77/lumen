@@ -66,6 +66,16 @@ export interface RadarPaper {
   citedBy: number
 }
 
+/** A followed course-discovery track on Radar's Courses tab. */
+export interface CourseTrack {
+  id: string
+  label: string
+  /** YouTube playlist search terms */
+  query: string
+  lastChecked?: string
+  updatedAt?: string
+}
+
 /** A paper added by the user (e.g. from Radar) — lives in the synced Inbox. */
 export interface CustomItem extends CatalogItem {
   addedAt: string

@@ -2,7 +2,7 @@ import { strFromU8, unzipSync } from 'fflate'
 
 /** Paths a lumen backup may contain (same set the sync engine tracks). */
 export const BACKUP_PATH =
-  /^(progress\.json|sessions\.json|custom\.json|radar\.json|queue\.json|sources\.json|notes\/.+\.md|code\/.+\.json|decks\/.+\.json|experiments\/.+\.json)$/
+  /^(progress\.json|sessions\.json|custom\.json|radar\.json|courses\.json|queue\.json|sources\.json|notes\/.+\.md|code\/.+\.json|decks\/.+\.json|experiments\/.+\.json)$/
 
 export interface BackupSummary {
   ok: boolean
@@ -82,6 +82,7 @@ function checkShape(path: string, parsed: any): string | null {
   if (path === 'custom.json' && !Array.isArray(parsed.items)) return 'missing items array'
   if (path === 'sources.json' && !Array.isArray(parsed.items)) return 'missing items array'
   if (path === 'radar.json' && !Array.isArray(parsed.topics)) return 'missing topics array'
+  if (path === 'courses.json' && !Array.isArray(parsed.tracks)) return 'missing tracks array'
   if (/^decks\//.test(path) && !Array.isArray(parsed.cards)) return 'missing cards array'
   if (/^code\//.test(path) && !Array.isArray(parsed.snippets)) return 'missing snippets array'
   if (/^experiments\//.test(path) && !Array.isArray(parsed.records)) return 'missing records array'

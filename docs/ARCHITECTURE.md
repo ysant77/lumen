@@ -28,6 +28,7 @@ Local-first PWA. Three storage planes with different lifecycles:
 | `src/lib/sync.ts` | Pull/merge/push engine + conflict policy (see SYNC.md) |
 | `src/lib/srs.ts` | ts-fsrs wrapper; serialized scheduling state on each card |
 | `src/lib/radar.ts` | OpenAlex discovery client (CORS, keyless); arXiv id extraction + direct PDF pulls |
+| `src/lib/courses.ts` + `src/data/course-picks.json` | Radar's Courses tab: curated picks per track, YouTube `search.list` playlist discovery (user's key), catalog search links |
 | `scripts/acquire_pdfs.py` | One-command re-acquisition of the whole open-access library on any machine |
 | `src/lib/pyodide.worker.ts` + `pyodide.ts` | Python runner in a module worker; stdout/err streaming, matplotlib figure capture |
 | `src/store/data.ts` | zustand store: parsed domain state ⇄ doc serialization, autosync debounce |

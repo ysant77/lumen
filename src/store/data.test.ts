@@ -141,6 +141,28 @@ describe('store persistence + restore (disposable fake IndexedDB)', () => {
     localStorage.removeItem('lumen.youtube.apiKey')
   })
 
+  it('course tracks persist to courses.json, survive reload and are exported', async () => {
+    const tracks = useData.getState().courseTracks
+    expect(tracks.length).toBeGreaterThan(0) // defaults until the user edits them
+    useData.getState().saveCourseTracks([...tracks, { id: 'fpga', label: 'FPGA', query: 'fpga dsp course' }])
+    await new Promise((r) => setTimeout(r, 20))
+    const doc = await getDoc('courses.json')
+    expect(JSON.parse(doc!.content).tracks.some((t: any) => t.id === 'fpga' && t.updatedAt)).toBe(true)
+    expect(useData.getState().dirtyPaths).toContain('courses.json')
+
+    await useData.getState().init()
+    expect(useData.getState().courseTracks.map((t) => t.id)).toContain('fpga')
+
+    const blob = useData.getState().exportAll()
+    const bytes = await new Promise<Uint8Array>((resolve, reject) => {
+      const r = new FileReader()
+      r.onload = () => resolve(new Uint8Array(r.result as ArrayBuffer))
+      r.onerror = () => reject(r.error)
+      r.readAsArrayBuffer(blob)
+    })
+    expect(validateBackup(bytes.slice().buffer as ArrayBuffer).files.map((f) => f.path)).toContain('courses.json')
+  })
+
   it('custom-item removal leaves a tombstone so deletions survive sync', async () => {
     useData.getState().addCustomItem({
       id: 'x-123',

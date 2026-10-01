@@ -5,6 +5,7 @@ import type { LearningSource } from '../types'
  *  - oEmbed (no key) for titles/uploader names
  *  - click-to-load embeds via youtube-nocookie.com
  *  - the Data API v3 playlist watcher, using the user's own API key
+ *  - (course discovery via search.list lives in courses.ts, same key)
  *
  * The key lives in localStorage only: it is never synced, never exported and
  * never logged. Note that any key used from a browser is visible to whoever

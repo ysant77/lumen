@@ -1,7 +1,7 @@
 /**
  * Record-level merging for synced docs.
  *
- * Structured docs (progress, sessions, decks, custom, radar, queue, experiments)
+ * Structured docs (progress, sessions, decks, custom, radar, courses, queue, experiments)
  * merge per record so independent edits from different devices both survive.
  * Opaque docs (notes/*.md, code/*.json) cannot be merged safely: the local
  * version stays live and the remote version is preserved as a conflict copy —
@@ -125,16 +125,16 @@ function mergeStructured(path: string, local: any, remote: any): unknown | null 
     items = items.filter((it) => !deleted[it.id] || ts(deleted[it.id]) < ts(it.updatedAt ?? it.addedAt))
     return { version: 1, items, deleted }
   }
-  if (path === 'radar.json') {
-    const topics = unionById<any>(remote.topics ?? [], local.topics ?? []).map((t) => {
-      const other = [...(remote.topics ?? []), ...(local.topics ?? [])].find(
-        (o) => o.id === t.id && o !== t,
-      )
+  if (path === 'radar.json' || path === 'courses.json') {
+    const key = path === 'radar.json' ? 'topics' : 'tracks'
+    const all = [...(remote[key] ?? []), ...(local[key] ?? [])]
+    const merged = unionById<any>(remote[key] ?? [], local[key] ?? []).map((t) => {
+      const other = all.find((o) => o.id === t.id && o !== t)
       const lastChecked =
         ts(t.lastChecked) >= ts(other?.lastChecked) ? t.lastChecked : other?.lastChecked
       return lastChecked ? { ...t, lastChecked } : t
     })
-    return { version: 1, topics }
+    return { version: 1, [key]: merged }
   }
   if (path === 'queue.json') {
     // small ordered list: whole-doc last-writer-wins by updatedAt

@@ -28,7 +28,11 @@ that works on iPad, macOS, Windows and Linux.
   models…). One tap adds a paper to your Inbox with the arXiv PDF fetched straight into local
   storage — it then behaves like any catalog paper (notes, code, cards, progress). Also: ad-hoc
   research on any topic (save it as a followed topic if it sticks) and add *specific* papers or
-  books by arXiv ID/URL, DOI, or manual entry.
+  books by arXiv ID/URL, DOI, or manual entry. A second **Courses** tab tracks free courses per
+  track (AI/ML, SAR data processing, radar & SAR hardware, IoT, Edge AI): hand-checked starter
+  picks, on-demand YouTube playlist search with your own API key (known course channels ranked
+  first, "new since last search" flags), and search links into Coursera, edX, MIT OCW and Class
+  Central. Following a course adds it to Sources.
 - **Sources** — external courses you follow: YouTube playlists/videos (click-to-load,
   privacy-enhanced embeds) and course sites, with verified official seeds (Stanford CS231n/CS224N/
   CS25, MIT 6.S191 + OCW 18.06, Harvard CS50 AI, CMU 11-785/10-714, Karpathy). Optional lecture
