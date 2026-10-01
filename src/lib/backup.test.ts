@@ -38,6 +38,15 @@ describe('validateBackup — validate BEFORE any write', () => {
     expect(s.errors[0]).toMatch(/cards array/)
   })
 
+  it('accepts courses.json and rejects it without a tracks array', () => {
+    const good = validateBackup(zipOf({ 'courses.json': JSON.stringify({ version: 1, tracks: [] }) }))
+    expect(good.ok).toBe(true)
+    expect(good.files.map((f) => f.path)).toEqual(['courses.json'])
+    const bad = validateBackup(zipOf({ 'courses.json': JSON.stringify({ version: 1 }) }))
+    expect(bad.ok).toBe(false)
+    expect(bad.errors[0]).toMatch(/tracks array/)
+  })
+
   it('rejects non-zip data without throwing', () => {
     const s = validateBackup(new TextEncoder().encode('not a zip').buffer as ArrayBuffer)
     expect(s.ok).toBe(false)

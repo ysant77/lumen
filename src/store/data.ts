@@ -5,6 +5,7 @@ import type {
   LearningSource,
   Checkpoints,
   CodeSnippet,
+  CourseTrack,
   CustomItem,
   Doc,
   ExperimentRecord,
@@ -28,6 +29,7 @@ import {
   mayHaveRecoverablePdf,
   resolveRecoveryTarget,
 } from '../lib/pdfRecovery'
+import { DEFAULT_TRACKS } from '../lib/courses'
 import { DEFAULT_TOPICS } from '../lib/radar'
 import { getSyncConfig, runSync, type SyncStore } from '../lib/sync'
 import { validateBackup, type BackupSummary } from '../lib/backup'
@@ -50,6 +52,7 @@ interface DataState {
   sources: LearningSource[]
   sourcesDeleted: Record<string, string>
   radarTopics: RadarTopic[]
+  courseTracks: CourseTrack[]
   weekQueue: WeekQueue
   experiments: Record<string, ExperimentRecord[]>
   pdfsAvailable: Set<string>
@@ -80,6 +83,7 @@ interface DataState {
   updateSource(source: LearningSource): void
   removeSource(sourceId: string): void
   saveRadarTopics(topics: RadarTopic[]): void
+  saveCourseTracks(tracks: CourseTrack[]): void
   setWeekQueue(items: string[]): void
   syncNow(): Promise<SyncReport | null>
   exportAll(): Blob
@@ -133,6 +137,8 @@ function parseDoc(path: string, content: string, state: Partial<DataState>) {
       state.customDeleted = parsed.deleted ?? {}
     } else if (path === 'radar.json') {
       state.radarTopics = JSON.parse(content).topics ?? []
+    } else if (path === 'courses.json') {
+      state.courseTracks = JSON.parse(content).tracks ?? []
     } else if (path === 'sources.json') {
       const parsed = JSON.parse(content)
       state.sources = parsed.items ?? []
@@ -195,6 +201,7 @@ export const useData = create<DataState>((set, get) => {
     sources: [],
     sourcesDeleted: {},
     radarTopics: DEFAULT_TOPICS,
+    courseTracks: DEFAULT_TRACKS,
     weekQueue: { items: [], updatedAt: '' },
     experiments: {},
     pdfsAvailable: new Set(),
@@ -251,6 +258,7 @@ export const useData = create<DataState>((set, get) => {
         sources: parsed.sources ?? [],
         sourcesDeleted: parsed.sourcesDeleted ?? {},
         radarTopics: parsed.radarTopics?.length ? parsed.radarTopics : DEFAULT_TOPICS,
+        courseTracks: parsed.courseTracks?.length ? parsed.courseTracks : DEFAULT_TRACKS,
         weekQueue: parsed.weekQueue ?? { items: [], updatedAt: '' },
         experiments: parsed.experiments ?? {},
         dirtyPaths: docs.filter((d) => d.dirty).map((d) => d.path),
@@ -489,6 +497,19 @@ export const useData = create<DataState>((set, get) => {
       void writeDoc('radar.json', JSON.stringify({ version: 1, topics: stamped }, null, 1))
     },
 
+    saveCourseTracks(tracks) {
+      const now = new Date().toISOString()
+      const prev = new Map(get().courseTracks.map((t) => [t.id, t]))
+      const stamped = tracks.map((t) => {
+        const old = prev.get(t.id)
+        const changed =
+          !old || old.label !== t.label || old.query !== t.query || old.lastChecked !== t.lastChecked
+        return changed ? { ...t, updatedAt: now } : t
+      })
+      set({ courseTracks: stamped })
+      void writeDoc('courses.json', JSON.stringify({ version: 1, tracks: stamped }, null, 1))
+    },
+
     setWeekQueue(items) {
       const weekQueue: WeekQueue = { items: [...new Set(items)], updatedAt: new Date().toISOString() }
       set({ weekQueue })
@@ -573,6 +594,7 @@ export const useData = create<DataState>((set, get) => {
         JSON.stringify({ version: 1, items: s.customItems, deleted: s.customDeleted }, null, 1),
       )
       files['radar.json'] = strToU8(JSON.stringify({ version: 1, topics: s.radarTopics }, null, 1))
+      files['courses.json'] = strToU8(JSON.stringify({ version: 1, tracks: s.courseTracks }, null, 1))
       files['queue.json'] = strToU8(JSON.stringify(s.weekQueue, null, 1))
       files['sources.json'] = strToU8(
         JSON.stringify({ version: 1, items: s.sources, deleted: s.sourcesDeleted }, null, 1),
@@ -653,6 +675,7 @@ export const useData = create<DataState>((set, get) => {
         sources: [],
         sourcesDeleted: {},
         radarTopics: DEFAULT_TOPICS,
+        courseTracks: DEFAULT_TRACKS,
         weekQueue: { items: [], updatedAt: '' },
         experiments: {},
         pdfRecovery: EMPTY_PDF_RECOVERY,

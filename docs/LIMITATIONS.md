@@ -59,6 +59,36 @@ Third-party integrations must always be (and the YouTube watcher complies):
   sites, and does not pretend to; they stay links unless/until real permitted
   adapters exist. deep-ml remains link-only (lowest priority).
 
+## Radar courses
+
+- **Only YouTube is searched live.** Course discovery calls the YouTube Data
+  API `search.list` (playlists only) with your own key, and only when you
+  click Search. Each search costs 100 of the key's 10,000 default daily quota
+  units — about 100 searches a day, shared with the lecture watcher.
+- **Coursera, edX, MIT OCW and Class Central are links, not integrations.**
+  None offers a catalog API lumen can call from the browser (Coursera's public
+  search endpoint is closed and sends no CORS headers), so lumen opens their
+  own search page for the track in a new tab and cannot tell you what is new
+  there.
+- **"audit" is a label, not a guarantee.** Coursera and edX decide per course
+  whether auditing or previewing is free; the starter picks were free to open
+  when checked (2026-10-01) but providers change this without notice.
+- **Starter picks are a hand-checked static list** shipped with the app. Links
+  were verified once (playlists against YouTube's oEmbed uploader, pages by
+  title); nothing re-checks them, and they go stale until the list is edited.
+- **Search quality is YouTube's.** Results are whatever `search.list` returns
+  for the track's terms. Playlists from a short list of known course channels
+  are ranked first and labelled; everything else is unvetted.
+- **"new" means published after your previous successful search of that
+  track**, as reported by YouTube. It is per track, not per playlist, and the
+  first search of a track flags nothing.
+- **Search results are not stored.** Only each track's last-searched time
+  syncs. Following a result stores its title and uploader on the new source
+  under the same 30-day retention as any other YouTube source.
+- **Course-track deletions can resurrect** after sync (union merge, no
+  tombstones), like Radar topics. Devices running an older build ignore
+  `courses.json` until they update.
+
 ## Sync & data
 
 - **Notes/code conflicts are preserved, not merged.** Diverged Markdown/code

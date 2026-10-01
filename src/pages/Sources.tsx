@@ -524,7 +524,8 @@ export default function Sources() {
       <section aria-label="Third-party terms" className="mt-4 rounded-xl border border-neutral-800 bg-neutral-900/20 p-4 text-[11px] leading-relaxed text-neutral-500">
         <h2 className="mb-1 text-xs font-semibold text-neutral-300">Third-party services & data</h2>
         <p>
-          YouTube players, title lookup and the lecture watcher use YouTube API Services. By using
+          YouTube players, title lookup, the lecture watcher and Radar's course search use YouTube
+          API Services. By using
           them you agree to the{' '}
           <a href="https://www.youtube.com/t/terms" target="_blank" rel="noreferrer" className="text-amber-400 underline">
             YouTube Terms of Service
@@ -534,8 +535,8 @@ export default function Sources() {
             Privacy Policy
           </a>{' '}
           applies. What lumen stores from YouTube: when you add a YouTube source, its{' '}
-          <b className="text-neutral-400">title and uploader name</b> (fetched via oEmbed) are
-          saved on that source record and sync with it — for at most {META_TTL_DAYS} days per
+          <b className="text-neutral-400">title and uploader name</b> (fetched via oEmbed, or taken
+          from the search result you followed in Radar) are saved on that source record and sync with it — for at most {META_TTL_DAYS} days per
           fetch. Freshness is tracked from the actual fetch time; acknowledging videos does not
           extend it. After {META_TTL_DAYS} days lumen deletes the YouTube-derived fields from the
           record (a YouTube-derived title falls back to a neutral label) and you can re-fetch them
@@ -543,7 +544,8 @@ export default function Sources() {
           your own notes are yours and are never expired. Watcher (Data API) responses are
           displayed transiently and not retained beyond the check you are looking at; lumen
           additionally persists the video IDs you explicitly mark seen, a baseline flag and check
-          timestamps. All of that is source bookkeeping — your notes, decks, bookmarks and reading
+          timestamps. Radar's course search results are likewise shown transiently; only the time
+          of each track's last search is kept. All of that is source bookkeeping — your notes, decks, bookmarks and reading
           progress are separate user-created data and are never touched or deleted by source
           operations. All network requests are user-initiated; nothing polls in the background.
         </p>

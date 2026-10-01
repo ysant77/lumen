@@ -1,11 +1,12 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { Link, useSearchParams } from 'react-router-dom'
 import type { CustomItem, RadarPaper, RadarTopic } from '../types'
 import { arxivPdfUrl, searchTopic, type SearchMode } from '../lib/radar'
 import { buildManualItem, findDuplicateByTitle, parseRef, resolveRef } from '../lib/lookup'
 import { directRecoveryTarget, downloadRecoveryTarget } from '../lib/pdfRecovery'
 import { useData } from '../store/data'
 import { Button, Chip, EmptyState, Icon, Spinner, cn } from '../components/ui'
+import CourseRadar from '../components/CourseRadar'
 
 function slugify(s: string) {
   return s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '').slice(0, 40)
@@ -103,7 +104,7 @@ function PaperCard({
   )
 }
 
-export default function Radar() {
+function PaperRadar({ tabs }: { tabs: ReactNode }) {
   const topics = useData((s) => s.radarTopics)
   const saveRadarTopics = useData((s) => s.saveRadarTopics)
   const customItems = useData((s) => s.customItems)
@@ -296,6 +297,7 @@ export default function Radar() {
           {editing ? 'done' : 'edit topics'}
         </button>
       </div>
+      {tabs}
       <p className="mb-4 text-xs text-neutral-500">
         Fresh papers per topic (via OpenAlex), tuned to the roadmap's gap areas. Add one to your{' '}
         <Link to="/library/inbox" className="text-amber-400 underline">
@@ -526,4 +528,36 @@ export default function Radar() {
       )}
     </div>
   )
+}
+
+const TABS = [
+  { id: 'papers', label: 'Papers' },
+  { id: 'courses', label: 'Courses' },
+] as const
+
+/** Radar = discovery. Papers (OpenAlex) and Courses (YouTube + curated) are separate views. */
+export default function Radar() {
+  const [params, setParams] = useSearchParams()
+  const tab = params.get('tab') === 'courses' ? 'courses' : 'papers'
+  const tabs = (
+    <div role="tablist" aria-label="Radar view" className="mb-3 flex gap-1 border-b border-neutral-800">
+      {TABS.map((t) => (
+        <button
+          key={t.id}
+          role="tab"
+          aria-selected={tab === t.id}
+          onClick={() => setParams(t.id === 'papers' ? {} : { tab: t.id }, { replace: true })}
+          className={cn(
+            '-mb-px border-b-2 px-3 py-1.5 text-xs font-medium',
+            tab === t.id
+              ? 'border-amber-500 text-amber-300'
+              : 'border-transparent text-neutral-500 hover:text-neutral-300',
+          )}
+        >
+          {t.label}
+        </button>
+      ))}
+    </div>
+  )
+  return tab === 'courses' ? <CourseRadar tabs={tabs} /> : <PaperRadar tabs={tabs} />
 }

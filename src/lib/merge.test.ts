@@ -118,6 +118,25 @@ describe('mergeDocs — record-level sync merge', () => {
     expect(merged.deleted['dead']).toBeTruthy() // tombstones retained
   })
 
+  it('courses.json merges per track: union, newest edit wins, lastChecked takes the max', () => {
+    const res = mergeDocs(
+      'courses.json',
+      j({ version: 1, tracks: [
+        { id: 'edge-ai', label: 'Edge AI', query: 'tinyml', lastChecked: '2026-09-20T00:00:00Z', updatedAt: '2026-09-20T00:00:00Z' },
+        { id: 'fpga', label: 'FPGA', query: 'fpga dsp', updatedAt: '2026-09-21T00:00:00Z' },
+      ] }),
+      j({ version: 1, tracks: [
+        { id: 'edge-ai', label: 'Edge AI (renamed)', query: 'tinyml', lastChecked: '2026-09-10T00:00:00Z', updatedAt: '2026-09-25T00:00:00Z' },
+      ] }),
+    )
+    expect(res.kind).toBe('merged')
+    const merged = JSON.parse((res as any).content)
+    expect(merged.tracks.map((t: any) => t.id).sort()).toEqual(['edge-ai', 'fpga'])
+    const edge = merged.tracks.find((t: any) => t.id === 'edge-ai')
+    expect(edge.label).toBe('Edge AI (renamed)')
+    expect(edge.lastChecked).toBe('2026-09-20T00:00:00Z')
+  })
+
   it('takes remote when contents are identical', () => {
     expect(mergeDocs('progress.json', j({ items: {} }), j({ items: {} })).kind).toBe('takeRemote')
   })
